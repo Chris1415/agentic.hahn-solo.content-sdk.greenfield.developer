@@ -1,0 +1,38 @@
+{
+  "$comment": [
+    "PER-MACHINE workspace configuration. Copy to .agent/workspace.json (gitignored) and edit.",
+    "",
+    "products_root — where the products/ mount point lands on THIS machine.",
+    "  Absolute:            \"D:/shared/agentic-products\"  or  \"//nas/agentic/products\"",
+    "  Relative to the repo: \"../agentic-products\"",
+    "  Home-relative:        \"~/agentic-products\"",
+    "  Omit the key entirely to use the in-repo default <repo>/products.",
+    "",
+    "Overridden per-shell by the AGENTIC_PRODUCTS_ROOT environment variable.",
+    "A configured root that does not exist is an ERROR, not a fallback.",
+    "products/_root/ is PINNED to the repo and never moves with the mount.",
+    "",
+    "sitecore_orgs — the Sitecore orgs this machine works against. The label is what you pass as --org and the suffix of your",
+    "  credential keys (SITECORE_CM_CLIENT_ID_<LABEL>). orgName and tenant are what a minted token must name: copy them from the",
+    "  token's org_name and tenant_name claims. Empty or absent, assert-tenant.mjs refuses every org unless the caller names the",
+    "  expected tenant itself (--expect / --tenant).",
+    "",
+    "production_org — a regex (case-insensitive) over the org as a manifest spells it. A match shows the run as PRODUCTION.",
+    "  Absent or invalid, every named org shows as production: the wrong warning beats none.",
+    "",
+    "default_org, default_cm — optional defaults for check-template-base-chain.mjs. Absent, it requires --org and --cm.",
+    "",
+    "Contract: .agent/commands/project/product-workspace.md § 1a",
+    "Resolver: .agent/scripts/resolve-products-root.mjs (node) / Resolve-ProductsRoot.ps1 (pwsh)"
+  ],
+  "products_root": "D:/shared/agentic-products",
+  "sitecore_orgs": {
+    "acme": {
+      "orgName": "acme-org",
+      "tenant": "<tenant_name claim of your CM client's token>"
+    }
+  },
+  "production_org": "^acme",
+  "default_org": "acme",
+  "default_cm": "products/head-application/<project-slug>/cm"
+}

@@ -1,0 +1,79 @@
+---
+description: Derive SDK request and response shapes from the SDK's declared types in node_modules — never from skill catalogs, prose docs, or task descriptions.
+alwaysApply: true
+---
+
+# SDK Contracts — Types Are Sourced from `node_modules`
+
+## The rule
+
+Before writing any call to a third-party SDK whose response shape you cannot see in front of you (e.g. `client.query("xmc.…", …)`, `experimental_createXMCClient`, `@hey-api/client-fetch` envelopes, any `*.d.ts`-generated client), first:
+
+1. **Open the actual `.d.ts` file** in `node_modules` for the request and response types involved.
+2. **Cite the file path inline** in the calling code as a comment, so a reviewer can follow the citation:
+   ```ts
+   // shape: node_modules/@sitecore-marketplace-sdk/xmc/dist/clients/types.gen.d.ts → Sites.Host
+   const hosts = await client.query("xmc.sites.listHosts", { ... });
+   ```
+3. **Import the SDK's declared types** rather than re-typing them locally:
+   ```ts
+   import type { Sites, Pages, Agent } from "@sitecore-marketplace-sdk/xmc";
+   ```
+4. **Mock fixtures must match the declared types.** A test that asserts behavior against an invented fixture is worse than no test — it produces a green pipeline against broken production code.
+
+## Why
+
+One product's v0.1 (shipped 2026-04-27 cycle 1) ran the full agentic pipeline cleanly — 167 tests passed, code review green, ship report green — and was broken on first real-tenant install. Root cause: `prefetch.ts` invented the `@hey-api/client-fetch` response envelope (double-unwrap), invented Preview URL shape (`string` vs `{ pageId, previewUrl }`), and invented Host shape (`kind: "delivery"` — a field that doesn't exist; the real field is `targetHostname`). Test fixtures mirrored the same invented shapes, so they passed against fiction. The `xmc.md` skill documents key names + request params but not response envelopes; the team treated catalog silence as permission to guess.
+
+## What this means in practice
+
+- **Skill catalogs are catalogs, not contracts.** The `sitecore` plugin skills — `marketplace-sdk-client`, `marketplace-sdk-xmc`, `marketplace-sdk-ai`, `marketplace-sdk-lifecycle`, and the `content-sdk-{app,pages}-router-graphql-data-fetching` family — are the conceptual entry points: they tell you *which key exists* and *what request params look like*. They do not tell you what the response wrapper looks like, what fields are populated in real tenants, or whether a particular endpoint is even reachable in the current architecture. Always pair the skill (the *what*) with the `.d.ts` citation (the *exact shape*).
+- **`@hey-api/client-fetch` envelopes are the most common trap.** Many `xmc.*` operations return `{ data, error, response }` from the underlying `@hey-api` client. Unwrapping twice (or not at all) silently produces `undefined` that propagates through happy-path tests.
+- **A test fixture authored without opening the `.d.ts` is a tautology.** The test author and the implementation author share the same wrong mental model; RED → GREEN passes against the shared fiction.
+
+## Inversion of control — independently sourced fixtures
+
+When the QA Specialist (07) writes a RED test for SDK-touching code, **at least one fixture must be independently sourced from the SDK's declared types** (or from a real tenant capture), not copied from the Lead Developer's task description. This is the safety net for shared blind-spot bugs. See also `30-tdd.mdc`.
+
+## Real-tenant verification
+
+Even with correct types, **runtime availability** is a separate concern. An endpoint that compiles and returns 200 may return empty/placeholder data in a tenant where operator preconditions aren't met (e.g. `targetHostname` unset on `Sites.Host` records). The `/test` and `/ship` smoke gates exist for this — do not declare an SDK integration "shipped" without a real-tenant smoke pass. See `.agent/commands/project/dev-flow/10-ship.md` smoke gating.
+
+## Operator preconditions belong in skill notes
+
+When a real-tenant smoke uncovers an operator-side precondition (e.g. "host needs `targetHostname` populated for the Live URL to resolve"), it must be added to the relevant skill catalog as a note so future apps don't rediscover it. This is part of `/cleanup-friction` promotion.
+
+## Agent application
+
+- **04 Software Architect:** When § 4c-6 (Integration / API contracts) names an SDK call, the architecture document must cite the `.d.ts` path for both request and response types.
+- **06 Lead Developer:** When authoring § 4c-6, copy the `.d.ts` citation from the architecture document (or open it directly) and inline it in the per-task spec. Do not paraphrase the response shape from the catalog.
+- **07 QA Specialist:** Independently source at least one fixture per SDK-touching task from the `.d.ts` (or a real tenant capture). Reject any fixture file that lacks a `// source:` citation.
+- **08 Developer:** Do not write `client.query("xmc.…")` without an inline `// shape:` citation pointing at the `.d.ts`. If the citation isn't in § 4c-6, escalate per `.agent/WORKFLOW.md` rather than guessing.
+
+## Pitfall index
+
+- Catalog says "returns Sites.Host" → you assume `kind`, `targetHostname`, `hostnames` exist as you imagine them. Open `node_modules/.../types.gen.d.ts` and confirm.
+- `@hey-api` returns `{ data, error, response }` → reading `.data.data` once or three times silently produces undefined. The `.d.ts` tells you exactly how many unwraps.
+- A field exists in the type but is empty in the tenant → that's an operator precondition, not a code bug. Document it in the skill and surface in `SMOKE_TEST.md`.
+- **`client.mutate` and `client.query` unwrap to DIFFERENT depths even on the same key family.** `client.query("xmc.*", …)` → payload at `result.data.data` (double). `client.mutate("xmc.*.graphql", …)` → payload at `result.data` (single). TypeScript erases both as `unknown` at the call site, so the compiler does not catch the mismatch. See the `marketplace-sdk-client` skill, § 8b, for the matrix. Component Usage Atlas's `lib/sdk/authoring-resolve.ts` regressed on this: the resolver read `result.data.data.iN` for an `xmc.authoring.graphql` mutation and silently returned `undefined` for every item — every editor saw "Unnamed item" for a week.
+
+## Reviewer grep checks (mandatory for every PR touching `lib/sdk/` or `core/`)
+
+Run these before approving an SDK-touching PR. They take 30 seconds and catch the high-frequency silent-failure patterns.
+
+```bash
+# 1. Mutation-unwrap regression — flag any `result.data.data` near a `client.mutate(` call.
+rg -n "client\.mutate\(" -A 30 site/ | rg -n "\.data\.data"
+# Each hit is a candidate bug — the mutation returns the body directly at .data.
+
+# 2. SDK call without an inline shape citation (40-sdk-contracts.mdc § Agent application).
+rg -nP "(client\.(query|mutate)|xmc\.\w+|ai\.\w+)\(" site/ -B 1 \
+  | rg -B 1 -v "(// (source|shape|captured):)|(/\*\*)"
+# Each call must have a source/shape/captured comment within 1 line above.
+
+# 3. Silent error swallow on SDK calls — `catch {}` or `catch (_) {}` directly wrapping a `client.*` call.
+rg -nP "catch\s*\([^)]*\)\s*\{\s*\}" site/lib/sdk/ site/core/
+# If any hit, demand a console.warn with a named tag (mutate-threw / graphql-errors / zero-resolved-in-batch).
+```
+
+The `code-reviewer` agent / `/code-review` command runs these greps as part of its review and surface every hit as a finding (CRITICAL for grep #1, MAJOR for #2, MAJOR for #3 unless the empty catch is explicitly justified in a comment).

@@ -1,0 +1,9 @@
+This repository is GENERATED and READ-ONLY.
+
+flow:          content-sdk.greenfield.developer
+composition:   platform:content-sdk
+source:        a private repo
+source commit: 25246cb3f8c7d663d833207849c3d9142cdc77a5
+
+Do not edit files here. Changes belong in the source repo; this tree is regenerated
+by the export and any local edit is lost on the next export.

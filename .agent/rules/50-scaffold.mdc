@@ -1,0 +1,55 @@
+---
+description: Canonical scaffold commands must actually run; never hand-write package.json from training data.
+alwaysApply: true
+---
+
+# Scaffold — Run the Canonical Command, Never Hand-Write
+
+## The rule
+
+When the task breakdown's § 4c-3 (Stack/tooling) — or any prior planning artifact — prescribes a canonical scaffold command from a `setup-*` skill (e.g. `npx shadcn@latest add quickstart-with-client-side-xmc.json`), the agent producing the `site/` tree:
+
+1. **Execute the literal command** via Bash. Same flags. Same registry URL. Same arguments. No paraphrase, no shortcut.
+2. **If the command fails** (network unavailable, registry down, permission denied, environment doesn't permit it, command times out): **HARD STOP.** Surface the failure to the user with the exact error, the command that failed, and what the user can do (run it themselves, change network, fix permissions). Do NOT improvise. Do NOT proceed to write source files until the scaffold succeeds.
+3. **Never hand-write `package.json`, `tsconfig.json`, `next.config.*`, or any config file the scaffold would produce — from training data or from memory.** Pinned versions of `next`, `react`, `@sitecore-marketplace-sdk/*`, `tailwindcss`, etc. drift the moment the model's knowledge cutoff passes. Hand-writing produces stale pins that diverge from the live registry, leading to silent breakage (Tailwind/Turbopack resolver mismatches, peer-dep conflicts, missing exports conditions).
+
+This applies to:
+- Marketplace Client-Side scaffolds (`setup-marketplace-client-side`)
+- Marketplace Full-Stack scaffolds (`setup-marketplace-full-stack`)
+- Content SDK head apps (`setup-content-sdk` → `npx create-content-sdk-app@<version> --template <nextjs-app-router|nextjs-app-router-cache-components|nextjs>`)
+- Any future scaffold whose canonical command is documented in a plugin skill
+
+## 4. Pick the right template variant, then VERIFY what the scaffold produced
+
+"Run it literally" only helps if the arguments are right. Where a scaffold CLI offers variants that produce **structurally different** apps, the variant is part of the command and must be chosen deliberately — then confirmed against the filesystem, never assumed.
+
+**Content SDK — the two template ids are NOT interchangeable:**
+
+| Router | Template id | Post-scaffold proof |
+|---|---|---|
+| **App Router** (this repo's default) | **`nextjs-app-router`** | `src/app/` exists, `src/pages/` does **not** |
+| Pages Router | `nextjs` | `src/pages/` exists, `src/app/` does **not** |
+
+The App Router has a second variant: `nextjs-app-router-cache-components` (on-demand revalidation). In a pipeline run the content-sdk pack selects between the two App Router templates by `variables.freshness` (`scaffold.command_by`). Under `osr` it additionally proves `src/app/api/revalidate/route.ts` and `cacheComponents: true`.
+
+Picking wrong is a **silent** failure of exactly the kind this rule exists to prevent: a Pages Router app has no client component map, no `[site]` catch-all route and no `AppRouterMultisiteProxy`, so any App-Router component ported into it is unusable — and nothing errors at scaffold time.
+
+**After every scaffold, assert the expected structure exists** (for Content SDK, the folder from the table). On any other outcome, **HARD STOP and report** — do NOT hand-edit `next.config.*`, move files, or otherwise convert routers by hand. Re-scaffolding is cheap; discovering the mismatch three tranches later is not.
+
+*Origin (2026-07-27):* a run inherited the bare `nextjs` token from the skill's own headline description, produced a Pages Router app for an App-Router PRD, and caught it only when the App-Router requirements turned out unsatisfiable. The skill had the correct guidance in a note further down; the headline won. Docs now lead with the router choice.
+
+## Why
+
+The dogfood rerun (2026-05-02) found that one product's agent **skipped** the canonical scaffold command (`npx shadcn@latest add quickstart-with-full-stack-xmc.json`) under a "sandbox has no network" excuse and hand-wrote `package.json` from memory. Result: Next 15.5.15 pinned (training-data value) instead of Next 16.1.7 (live registry value). Downstream consequences included a Tailwind v4 `style` exports condition mismatch in Turbopack that produced a broken dev server and required manual @import path patching.
+
+Hand-writing scaffold output is a class of silent failure that compounds: every dep is one cutoff older than the live ecosystem, and the bugs that surface are the ones the live registry has already fixed.
+
+## How to apply
+
+- **Developer (08) under `/implement`:** Before writing any source file, locate the canonical scaffold command in the task breakdown § 4c-3. Run it via Bash. If it fails, STOP and report — do not start writing files.
+- **Any agent dogfooding a new app type:** the same rule applies. The canonical command is the source of truth for pinned versions.
+- **In planning artifacts** (architect, lead developer): cite the canonical command verbatim in § 4c-3, including the registry URL, so the developer has zero ambiguity.
+
+## Exceptions
+
+None for production builds. For research / prototype runs where a partial skeleton is intentional, the scaffold command must STILL run for the `package.json` + `tsconfig.json` + `next.config.*`; only the deeper file-level skeleton may be partial. The `package.json` always comes from the live scaffold, never from training data.

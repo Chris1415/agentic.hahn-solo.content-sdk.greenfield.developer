@@ -1,0 +1,1197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "2.0",
+  "description": "Machine-readable registry of all agent commands, flows, and their relationships. Used for validation, documentation generation, and flow orchestration.",
+  "agent_registry": {
+    "13": {
+      "name": "DevOps Engineer",
+      "file": "packs/platform/content-sdk/agents/13-devops-engineer.md",
+      "type": "specialist"
+    },
+    "14": {
+      "name": "Content Author",
+      "file": "packs/platform/content-sdk/agents/14-content-author.md",
+      "type": "specialist"
+    },
+    "00": {
+      "name": "Team Lead",
+      "file": "agents/team/00-team-lead.md",
+      "type": "orchestrator"
+    },
+    "01": {
+      "name": "Rubber Ducky",
+      "file": "agents/team/01-rubber-ducky.md",
+      "type": "discovery"
+    },
+    "02": {
+      "name": "Product Manager",
+      "file": "agents/team/02-product-manager.md",
+      "type": "specialist"
+    },
+    "03": {
+      "name": "Research Sidecar",
+      "file": "agents/team/03-research-sidecar.md",
+      "type": "specialist"
+    },
+    "04": {
+      "name": "Software Architect",
+      "file": "agents/team/04-software-architect.md",
+      "type": "specialist"
+    },
+    "05": {
+      "name": "UI Designer",
+      "file": "agents/team/05-ui-designer.md",
+      "type": "specialist"
+    },
+    "06": {
+      "name": "Lead Developer",
+      "file": "agents/team/06-lead-developer.md",
+      "type": "specialist"
+    },
+    "07": {
+      "name": "QA Specialist",
+      "file": "agents/team/07-qa-specialist.md",
+      "type": "specialist"
+    },
+    "08": {
+      "name": "Developer",
+      "file": "agents/team/08-developer.md",
+      "type": "specialist"
+    },
+    "09": {
+      "name": "Doc Writer",
+      "file": "agents/team/09-doc-writer.md",
+      "type": "specialist"
+    }
+  },
+  "commands": {
+    "prime": {
+      "intent": "analysis",
+      "flow": "setup",
+      "file": "commands/project/prime.md",
+      "interactive": false,
+      "agents": [],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "product slug (first arg or product=)",
+          "README.md",
+          "AGENTS.md",
+          "PRD docs"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/prime.md"
+      ],
+      "next": [
+        "rubber-ducky",
+        "create-prd"
+      ]
+    },
+    "status": {
+      "intent": "analysis",
+      "flow": "setup",
+      "file": "commands/project/status.md",
+      "interactive": false,
+      "agents": [],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "product slug for single-product detail",
+          "--stale",
+          "--paused"
+        ]
+      },
+      "outputs": [],
+      "note": "Read-only portfolio overview across products/. Surfaces stage, branch, last activity, open smoke, friction-log presence, POC presence per product.",
+      "next": []
+    },
+    "rubber-ducky": {
+      "intent": "discovery",
+      "flow": "project",
+      "file": "commands/project/dev-flow/01-rubber-ducky.md",
+      "interactive": true,
+      "agents": [
+        "01"
+      ],
+      "inputs": {
+        "required": [
+          "raw idea or source file"
+        ],
+        "optional": [
+          "public URL",
+          "existing source-analysis artifact"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/brain-dumps/brain-dump-<timestamp>.md",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "next": [
+        "create-prd"
+      ]
+    },
+    "create-prd": {
+      "intent": "product_spec",
+      "flow": "project",
+      "file": "commands/project/dev-flow/02-create-prd.md",
+      "interactive": true,
+      "agents": [
+        "02"
+      ],
+      "agent_modes": {
+        "02": [
+          "discovery",
+          "constructive",
+          "critical"
+        ]
+      },
+      "inputs": {
+        "required": [
+          "brain-dump path OR raw product description"
+        ],
+        "optional": [
+          "scope dial slash args (rigor=, track=, ui=, docs=)",
+          "skip scope dial",
+          "skip discovery",
+          "skip critical review"
+        ]
+      },
+      "outputs": [
+        "git branch prd-NNN (created before PRD write; stacked on prd-(NNN-1) when predecessor unmerged)",
+        "products/head-application/<project-slug>/<head-app-slug>/** (content-sdk first-time repo setup only — § 10a-4b deployable baseline: generator output + xmcloud.build.json + values-free .env.example + .gitignore, committed and pushed to `main` before prd-NNN branches)",
+        "products/<product-slug>/project-planning/specs/prd-NNN.md",
+        "products/<product-slug>/project-planning/specs/prd-minimal-NNN.md",
+        "products/<product-slug>/project-planning/ADR/adr-*.md",
+        "products/<product-slug>/project-planning/plans/interrogation-discovery-<timestamp>.md (grill ledger, Tier 3)",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json (with scope_dial + packs)",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "scope-dial",
+        "discovery",
+        "discovery-summary"
+      ],
+      "gate_policy": "soft",
+      "gate_policy_note": "Close is SOFT and auto-chains into /challenge-prd, which carries the spec gate (moved there 2026-07-29 when the critical review was split out of steps 12-13). /create-prd inherits the spec gate ONLY when the operator says skip critical review (then HARD iff scope_dial.gates.spec). The scope-dial kickoff (three AskUserQuestion calls) sets scope_dial.gates (pick-any operator stops: spec/design/build/final/go_live — build = the end-of-build Components Preview review at /test close on content-sdk runs), scope_dial.delivery_loop (per_component default | once — the build-loop TEST-leg cadence, rule 71; code review is per tranche in both), scope_dial.delivery_shape (mvp-first default | all — whether PRD-000 is the MVP or the whole vision; /architect 2b-i sizes the build and records four signals under BOTH values, added 2026-09-25 replacing the kickoff ui_variants question), scope_dial.content_authoring (auto/yes/no), and scope_dial.imagery (mood/none) — delivery_loop added 2026-07-13, build gate added 2026-07-16.",
+      "next": [
+        "challenge-prd"
+      ],
+      "note": "PRD weight of the intake engine. Sets work_item_type: prd. Siblings /create-frd (feature weight) and /create-bug (bug weight) are lighter entry points into the same engine — see .agent/glossary.md § 'Work item type'. Discovery is an INTERROGATION as of 2026-08-03 (.agent/commands/project/interrogation-protocol.md): one question per AskUserQuestion call inside the spawned PM, each derived from the last answer, budget from scope_dial.rigor (light 3-5 / standard 8-12 / thorough 20+ uncapped) instead of the old 2-3 rounds; answers land in a Tier-3 ledger the constructive spawn reads by path."
+    },
+    "create-frd": {
+      "intent": "feature_spec",
+      "flow": "project",
+      "file": "commands/project/dev-flow/02a-create-frd.md",
+      "interactive": true,
+      "agents": [
+        "02"
+      ],
+      "agent_modes": {
+        "02": [
+          "discovery",
+          "constructive",
+          "critical"
+        ]
+      },
+      "inputs": {
+        "required": [
+          "prompt OR brain-dump path OR ticket reference"
+        ],
+        "optional": [
+          "rigor=/track=/ui=/docs= overrides",
+          "skip discovery",
+          "skip critical review"
+        ]
+      },
+      "outputs": [
+        "git branch frd-NNN",
+        "products/<product-slug>/project-planning/specs/frd-NNN.md",
+        "products/<product-slug>/project-planning/specs/frd-minimal-NNN.md",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json (work_item_type: frd)",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "discovery-summary"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "challenge-prd"
+      ],
+      "note": "Feature weight of the intake engine (schema 8). Sets work_item_type: frd. Lighter than /create-prd: derived scope dial (light/minimal/skip-ui), skips /architect by default, unattended planning span (spec/design tokens inert, /task-breakdown soft) so its first stop is the end-of-build review (build/final) plus go_live. Mandatory acceptance-criteria DoD backbone. Promotes to /create-prd when scope balloons."
+    },
+    "create-bug": {
+      "intent": "bug_report",
+      "flow": "project",
+      "file": "commands/project/dev-flow/02b-create-bug.md",
+      "interactive": true,
+      "agents": [
+        "02"
+      ],
+      "agent_modes": {
+        "02": [
+          "constructive"
+        ]
+      },
+      "inputs": {
+        "required": [
+          "prompt OR GitHub issue OR ticket reference"
+        ],
+        "optional": [
+          "platform/version/route context"
+        ]
+      },
+      "outputs": [
+        "git branch bug-NNN",
+        "products/<product-slug>/project-planning/specs/bug-NNN.md",
+        "products/<product-slug>/project-planning/specs/bug-minimal-NNN.md",
+        "products/<product-slug>/project-planning/plans/task-breakdown-<timestamp>.md (thin: T001 RED test, T002 fix-to-green)",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json (work_item_type: bug)",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "cant-reproduce-valve",
+        "not-contained-valve"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "implement"
+      ],
+      "note": "Bug weight of the intake engine (schema 8). Sets work_item_type: bug. Autonomous: 0 planned gates + two valves (can't-reproduce → ask; not-contained → promote). Maps to TDD — RED regression test first (the DoD backbone). Produces a thin task breakdown inline so /implement runs in pipeline mode; skips /architect and /task-breakdown planning weight. SDK-touching bugs need a real-tenant smoke before ship."
+    },
+    "challenge-prd": {
+      "intent": "review_and_align",
+      "flow": "project",
+      "file": "commands/project/dev-flow/03-challenge-prd.md",
+      "interactive": true,
+      "agents": [
+        "02"
+      ],
+      "agent_modes": {
+        "02": [
+          "critical",
+          "constructive"
+        ]
+      },
+      "agent_sequence": [
+        "02",
+        "02"
+      ],
+      "inputs": {
+        "required": [
+          "spec path (prd-NNN.md or frd-NNN.md; = canonical_artifacts.prd)"
+        ],
+        "optional": [
+          "focus prompt",
+          "level= override",
+          "work_item_type (from manifest; default prd)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/specs/prd-NNN.md (revised in place from review answers)",
+        "products/<product-slug>/project-planning/specs/prd-minimal-NNN.md (re-extracted when the Developer slice changed)",
+        "products/<product-slug>/project-planning/ADR/adr-*.md (added/superseded when answers move an architectural commitment)",
+        "products/<product-slug>/project-planning/plans/interrogation-challenge-<timestamp>.md (grill ledger, Tier 3)",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "spec"
+      ],
+      "gate_policy": "hard",
+      "gate_policy_note": "CARRIES THE spec GATE, moved here from /create-prd close on 2026-07-29. HARD only when scope_dial.gates.spec is on (default) AND work_item_type == prd; off (custom/fully_autonomous) or an FRD run → SOFT auto-continue. An unresolved blocker-severity challenge keeps the stop regardless of the gate.",
+      "next": [
+        "architect",
+        "task-breakdown"
+      ],
+      "note": "Canonical spec-review stage, auto-chained from /create-prd (PRD weight) and /create-frd (derived-light weight, soft close). Split out of /create-prd steps 12-13 on 2026-07-29 so the review owns its merge, gets a stage_history entry (spec_challenged), and can express a blocking finding (new blocker/major/minor severity model). Owns the full cycle: cold-read gap analysis → GRILL the operator over the ranked gaps → merge answers into the spec → re-extract minimal → adjust ADRs. Became an INTERROGATION on 2026-08-03 (.agent/commands/project/interrogation-protocol.md): one question per AskUserQuestion call, budget from scope_dial.rigor (light 3-5 / standard 8-12 / thorough 20+) instead of the old 1-2 batched rounds; the grouped headed report is now the CLOSE, not the open. Under dual_review only the analysis doubles — exactly one grill runs. next = /architect on a PRD run, /task-breakdown on an FRD run. Also serves the on-demand re-challenge of a revised/stale spec."
+    },
+    "discover-sitecoreai": {
+      "intent": "discovery",
+      "flow": "project",
+      "file": "packs/platform/content-sdk/stages/discover-sitecoreai.md",
+      "interactive": true,
+      "agents": [
+        "08"
+      ],
+      "inputs": {
+        "required": [
+          "Content SDK run (platform:content-sdk)"
+        ],
+        "optional": [
+          "scenario-interview answers (project/env/collection/site/components exist?)",
+          "path to the existing CM code base (EXISTING CM)",
+          "SITE_COLLECTION_NAME / SITE_NAME (verified against the tree, not trusted)",
+          "cloud project/environment ids",
+          "SITECORE_EDGE_CONTEXT_ID"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/architecture/sitecore-inventory-<timestamp>.md (content_model — EXISTING only)",
+        "<operator CM code path>/**/*.module.json (new detokenized serialization module — EXISTING CM only)",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json (canonical_artifacts.content_model + provision_plan)",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "scenario-interview",
+        "names-verified",
+        "inventory-confirmed"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "architect"
+      ],
+      "note": "Content SDK runs. Runs BETWEEN /create-prd and /architect (optionally after /source-analysis when the operator explicitly requested URL rebuild parity extraction). Read-only + scenario assessment (renamed from discover-source 2026-06-25; symmetric with /provision-sitecoreai). Opens with a scenario interview (project/env/collection/site/components exist?) and emits a provision_plan (create-or-skip cascade) consumed by /provision-sitecoreai. CM env ↔ CM code base is 1:1: EXISTING CM → operator gives the path to the existing CM code base; add a new serialization module there (from the baseline example.module.json template) token-replaced with the VERIFIED real collection/site names, then ser pull — do NOT create a cm/ folder. NEW → record the full-cascade plan and stop (no read; the content model is derived from the static app at /architect; /provision-sitecoreai creates the cm/ baseline). Gives /architect the REAL component inventory (renderings + datasource field types/casing + resolver patterns) instead of [ASSUMED] shapes — the PM/PRD stays at product altitude. Gotchas (rule 81): VERIFY real names via a shallow discovery pull BEFORE token-replacing (aurora vs auroras); the CM code needs a nuget.config with the Sitecore feed (else .NET sitecore.cli plugin restore fails); two CLIs — pull is the .NET sitecore.cli, not the head app's Node sitecore-tools; .sitecore/user.json holds tokens → gitignore. No head-app scaffold here (that moved to /provision-sitecoreai). Friction F1/F4/F5/F6 fold-back (2026-06-23 coffee-roastery dogfood)."
+    },
+    "architect": {
+      "intent": "planning",
+      "flow": "project",
+      "file": "commands/project/dev-flow/04-architect.md",
+      "interactive": true,
+      "agents": [
+        "04"
+      ],
+      "agent_sequence": [
+        "04"
+      ],
+      "inputs": {
+        "required": [
+          "PRD path"
+        ],
+        "optional": [
+          "planning track (full|minimal)",
+          "budget=lean|mindful|deliberate",
+          "source full-clone bundle (source_analysis_artifact + content_dump + assets_bundle + clone_handover_artifact when source.clone_scope_mode=full_website_clone)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/architecture/architecture-<timestamp>.md",
+        "products/<product-slug>/project-planning/ADR/adr-*.md",
+        "products/<product-slug>/project-planning/baseline.md",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "baseline-promotion",
+        "adr-density-phase"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "design"
+      ],
+      "note": "Architecture + ADRs only — UI design extracted into the standalone /design stage (2026-06-25). next = /design (UI), or /task-breakdown directly when there is no UI scope."
+    },
+    "design": {
+      "intent": "planning",
+      "flow": "project",
+      "file": "commands/project/dev-flow/04b-design.md",
+      "interactive": true,
+      "agents": [
+        "05"
+      ],
+      "agent_sequence": [
+        "05"
+      ],
+      "inputs": {
+        "required": [
+          "architecture or ADRs (or PRD on minimal track)"
+        ],
+        "optional": [
+          "scope_dial.ui_variants (skip|1|2|3)",
+          "divergence (subtle|moderate|radical)",
+          "content_model (Content SDK existing-site)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/ui-design/ui-design-<timestamp>-vN.md",
+        "products/<product-slug>/project-planning/design-prototypes/poc-vN-prdNNN/",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "poc-winner-pick"
+      ],
+      "gate_policy": "hard-when-gates.design",
+      "next": [
+        "task-breakdown"
+      ],
+      "note": "UI design + POC clickdummies (UI Designer 05). Extracted from /architect 2026-06-25 as a standalone stage AFTER /architect. Optional — skip when scope_dial.ui_variants == skip or there is no UI scope. Produces 1-3 variant specs + self-contained HTML clickdummies (per-action post-state frames + click-targets.md), optional critic scoring, operator picks a winner = the visual source of truth. ONE operator stop only — the winner pick, which IS the `design` gate and fires iff scope_dial.gates.design (default on, ticked at the /create-prd kickoff); when off, the top-scored POC (or v1) is auto-selected and recorded. The intermediate specs-done and direction-locked stops were removed 2026-07-30 — they were unconditional, so unticking the token did not actually yield an unattended stage. Marketplace runs enforce real Blok components + tokens in both specs and POCs."
+    },
+    "task-breakdown": {
+      "intent": "planning",
+      "flow": "project",
+      "file": "commands/project/dev-flow/05-task-breakdown.md",
+      "interactive": true,
+      "agents": [
+        "06",
+        "07"
+      ],
+      "agent_sequence": [
+        "06",
+        "07"
+      ],
+      "inputs": {
+        "required": [
+          "PRD path",
+          "architecture or ADRs"
+        ],
+        "optional": [
+          "selected UI variant"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/task-breakdown-<timestamp>.md",
+        "products/<product-slug>/project-planning/plans/qa-report.md",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "extra-stops-only"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "implement"
+      ],
+      "note": "Carries NO gate token — closes soft and auto-continues to /implement (corrected 2026-07-30; the command file previously declared a hard close it had no token for, which made fully_autonomous unreachable). Stops only on a critical trigger, a [BLOCKER], or an operator-named scope_dial.extra_stops entry."
+    },
+    "provision-sitecoreai": {
+      "intent": "provisioning",
+      "flow": "project",
+      "file": "packs/platform/content-sdk/stages/provision-sitecoreai.md",
+      "interactive": true,
+      "agents": [
+        "13"
+      ],
+      "inputs": {
+        "required": [
+          "Content SDK run (platform:content-sdk)",
+          "provision plan from /discover-sitecoreai",
+          "org deploy-admin automation client id+secret (session-only)"
+        ],
+        "optional": [
+          "content_model inventory (EXISTING)",
+          "architect stack decision / scaffold command",
+          "existing project/environment/collection/site ids to skip"
+        ]
+      },
+      "outputs": [
+        "products/head-application/<project-slug>/cm/ (CM baseline at the PROJECT level, shared by all sibling head apps: authoring/, sitecore.json, xmcloud.build.json [CM-only], nuget.config, .config/, .sitecore/)",
+        "products/head-application/<project-slug>/<head-app-slug>/ (scaffolded App Router head app = editing host, sibling of cm/, coexists with its own project-planning/; xmcloud.build.json path ./)",
+        "products/head-application/<project-slug>/cm/authoring/items/items/** (initial ser pull)",
+        "decoupled cloud topology: CM-only environment + separate editing host (SitecoreAI Deploy)",
+        "products/head-application/<project-slug>/<head-app-slug>/project-planning/workflow/run-<timestamp>.json (provisioning.*; secrets redacted)",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gates": [
+        "deploy-auth",
+        "cm-provisioned",
+        "site-published-before-eh"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "implement"
+      ],
+      "note": "Content SDK DevOps step-zero (DevOps Engineer 13). Runs BETWEEN /task-breakdown and /implement. Stands up the DECOUPLED cloud topology — a CM-only environment (`cloud environment create --cm-only`, NOT coupled/Legacy) + a separate editing host (`editinghost create --cm-environment-id`) — scaffolds the deployable baseline (cm/ CM-only + sibling App Router head app), and DEPLOYS via UPLOAD (Git-free) in the only green-build order: CM deploy (the deployment is what triggers provisioning — env-create alone does not) → mint env client → create collection/site (XM Apps API) → publish → editing host deploy (it SSG-prerenders against Edge and 404s on an empty tenant). All non-interactive from ONE org deploy-admin automation client. Disable the Project serialization module (example.module.json) for the initial CM deploy (nothing to push yet); items flow CM→repo via pull at /ship, never push. Idempotent cascade: create only the rungs /discover-sitecoreai marked absent. Handles env-quota 402 + escalates repeatable server-side provisioning failures with the tracing ID (known open Deploy-side issue 2026-06-25)."
+    },
+    "implement": {
+      "intent": "implementation",
+      "flow": "project",
+      "file": "commands/project/dev-flow/06-implement.md",
+      "interactive": false,
+      "agents": [
+        "08"
+      ],
+      "modes": [
+        "pipeline",
+        "freeform"
+      ],
+      "inputs": {
+        "required": [],
+        "pipeline_required": [
+          "prd-minimal",
+          "enriched task-breakdown"
+        ],
+        "freeform_required": [
+          "user prompt (text description of changes)"
+        ],
+        "optional": [
+          "qa-report.md",
+          "source assets (rebuild mode)",
+          "prime.md (codebase context)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/task-breakdown-<timestamp>.md (§ 0 + § 8 updated in place; schema 7+ — no separate implementation-runbook)",
+        "<target-directory>/*",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "note": "Schema 7 (2026-05-20) absorbed implementation-runbook into the task-breakdown § 0 Quick orientation. Legacy schema-6 manifests may still reference canonical_artifacts.implementation_runbook; new runs do not produce that artifact.",
+      "gate_policy": "soft",
+      "next": [
+        "code-review"
+      ]
+    },
+    "code-review": {
+      "intent": "review",
+      "flow": "project",
+      "file": "commands/project/dev-flow/07-code-review.md",
+      "interactive": false,
+      "agents": [
+        "08"
+      ],
+      "inputs": {
+        "required": [
+          "task breakdown (§ 0 + § 8 + § 4c)",
+          "prd-minimal"
+        ],
+        "optional": [
+          "scope path/glob",
+          "legacy implementation-runbook (schema-6 only)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/code-review-<timestamp>.md"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "test"
+      ]
+    },
+    "test": {
+      "intent": "verification",
+      "flow": "project",
+      "file": "commands/project/dev-flow/08-test.md",
+      "interactive": false,
+      "agents": [
+        "07",
+        "08",
+        "14"
+      ],
+      "agent_sequence": [
+        "07",
+        "08"
+      ],
+      "agent_note": "14 Content Author is spawned by 07 at step 1d-0 on content-sdk runs to COMPOSE the Components Preview fixture tree (authoring is 14's identity + skill + model tier); 07 then AUDITS it. Author and auditor stay separate.",
+      "modes": [
+        "pipeline",
+        "freeform"
+      ],
+      "inputs": {
+        "required": [
+          "task breakdown (§ 8 What Needs To Be Tested is the global test reference)"
+        ],
+        "pipeline_required": [
+          "prd-minimal"
+        ],
+        "freeform_required": [],
+        "optional": [
+          "PRD",
+          "architecture/ADRs",
+          "baseline.md",
+          "qa-report.md",
+          "code-review report",
+          "POC clickdummy",
+          "legacy implementation-runbook (schema-6 only)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/test-report-<timestamp>.md"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "ship"
+      ]
+    },
+    "document": {
+      "intent": "documentation",
+      "flow": "on_demand",
+      "file": "commands/project/dev-flow/09-document.md",
+      "interactive": false,
+      "agents": [
+        "09"
+      ],
+      "inputs": {
+        "required": [
+          "PRD",
+          "ADRs"
+        ],
+        "optional": [
+          "task-breakdown (§ 0 + § 8)",
+          "baseline.md",
+          "ship-report",
+          "architecture",
+          "test-report",
+          "code-review report",
+          "legacy implementation-runbook (schema-6 only)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/README.md",
+        "products/<product-slug>/CHANGELOG.md",
+        "products/<product-slug>/docs/architecture.md",
+        "products/<product-slug>/docs/decisions.md"
+      ],
+      "note": "On-demand only. Not in canonical sequence — /ship emits a 1-paragraph README + CHANGELOG entry inline when scope_dial.docs_at_ship is auto-lite (the default). Use /document for heavy doc refreshes (post-MVP polish, public release) or when scope_dial.docs_at_ship is full.",
+      "next": [
+        "ship"
+      ]
+    },
+    "ship": {
+      "intent": "closure",
+      "flow": "project",
+      "file": "commands/project/dev-flow/10-ship.md",
+      "interactive": false,
+      "agents": [
+        "02",
+        "09",
+        "08",
+        "13"
+      ],
+      "agent_modes": {
+        "02": [
+          "constructive"
+        ],
+        "09": [
+          "lite"
+        ]
+      },
+      "agent_sequence": [
+        "02",
+        "09",
+        "08"
+      ],
+      "agent_note": "THREE specialists are spawned, in order: 02 Product Manager (constructive) writes the ship report; 09 Doc Writer (lite mode) emits the auto-lite README + CHANGELOG when scope_dial.docs_at_ship == auto-lite; 08 Developer does git finalization (stage, commit message, commit, push, PR). 13 DevOps is ATTRIBUTION-ONLY — it is not spawned here, it owns the content_sdk_closeout stage_history entry on content-sdk runs (the real deploy/publish work moved to /publish). Before 2026-07-29 the orchestrator emitted the lite docs and authored the commit message itself, which violated rule 72-orchestrator-discipline.",
+      "inputs": {
+        "required": [
+          "PRD",
+          "prd-minimal",
+          "task-breakdown (§ 0 + § 8 + delivery status)"
+        ],
+        "optional": [
+          "test-report",
+          "code-review report",
+          "ADRs",
+          "baseline.md",
+          "documentation outputs",
+          "user notes",
+          "legacy implementation-runbook (schema-6 only)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/ship-report-<timestamp>.md",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json",
+        "git commit + push + pull request"
+      ],
+      "gate_policy": "soft",
+      "next": [],
+      "content_sdk_next": [
+        "discover-components"
+      ],
+      "ship_note_2026_07_06": "Content SDK: /ship ships CODE ONLY (editing-host + Vercel deploy against PREVIEW context, commit, PR — NO publish). The content phase (/discover-components → /author-content ⇄ /test-content) then runs, and /publish is the final step. Non-content runs are terminal at /ship."
+    },
+    "publish": {
+      "intent": "closure",
+      "flow": "project",
+      "file": "packs/platform/content-sdk/stages/publish.md",
+      "interactive": true,
+      "agents": [
+        "13"
+      ],
+      "inputs": {
+        "required": [
+          "Content SDK run (platform:content-sdk) with content authored + /test-content passed"
+        ],
+        "optional": [
+          "publish scope (full-site | subtree)",
+          "cm code base path",
+          "LIVE SITECORE_EDGE_CONTEXT_ID",
+          "operator confirm for the live publish"
+        ]
+      },
+      "outputs": [
+        "Sitecore publish job (layout items + authored content + media published to the LIVE Edge)",
+        "products/head-application/<project-slug>/cm/authoring/items/** (ser pull of authored items; committed for git durability)",
+        "editing host + Vercel re-deploy on the LIVE SITECORE_EDGE_CONTEXT_ID",
+        "git commit (authored content persisted) + PR update",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json",
+        "products/<product-slug>/project-planning/workflow/current-run.json"
+      ],
+      "gate_policy": "soft",
+      "next": [],
+      "note": "FINAL step of the Content SDK branch (2026-07-06) — the ONE place anything goes live. Runs AFTER the content phase (/test-content). Preview-first/publish-last (glossary § 'Preview-first delivery'): /implement, /test, /author-content, /test-content all work against PREVIEW; /publish publishes EVERYTHING (Publishing REST API — layout items + authored content + media), pulls the authored items into cm/ + commits them for git durability, and re-deploys the editing host + Vercel with the LIVE SITECORE_EDGE_CONTEXT_ID (the 200-not-302 media gate moved here from /ship — it depends on published content). The live publish is operator-confirmed (an outward-facing integration boundary). DevOps Engineer 13. Non-content / Marketplace / generic runs never reach this (they are terminal at /ship). The first live run is a boundary check — verify the /ship→/publish deploy split (preview-context ship vs live-context publish) against a real tenant. Contract: .agent/packs/platform/content-sdk/stages/publish.md."
+    },
+    "author-content": {
+      "intent": "authoring",
+      "flow": "on_demand",
+      "file": "packs/platform/content-sdk/stages/author-content.md",
+      "interactive": true,
+      "agents": [
+        "14",
+        "07"
+      ],
+      "modes": [
+        "freeform",
+        "pipeline"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "content type (blog/website/sitecore/general)",
+          "target channel (freeform/personal blog/personal website/Sitecore)",
+          "register (brand|marketing|technical-neutral; defaults to the spec's Register default)",
+          "brand (from the spec's Brand voice and identity section; asked when a freeform run has no spec)",
+          "brief/topic + source links",
+          "product slug (pipeline content step)"
+        ]
+      },
+      "outputs": [
+        "<freeform> inline content or an operator-named markdown file",
+        "<personal blog / website> the channel content artifact (via adapter; draft + landing steps until wired)",
+        "<Sitecore> page/datasource content in the target tenant (Marketer MCP / SitecoreAI Agent + Pages; publish explicit)"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "test-content"
+      ],
+      "note": "Content Author (agent 14) + Content QA gate (07). Writes audience-facing content in the brand's voice, taken from the spec's 'Brand voice and identity' section, loading sitecoreai-brand-voice, in a named register (brand / marketing / technical-neutral). A missing section stops the stage (check-brand-voice-section.mjs). Then a Content QA pass (07 in content-review mode: brand / voice-register fit / factual accuracy / channel format) with a fix loop back to 14. On-demand (freeform) OR the formal content phase of the Content SDK branch, AFTER /ship (2026-07-06): -> /ship -> /discover-components -> /author-content -> /test-content -> /publish (real brand content or seed test pages); works against PREVIEW; /test-content is the authoritative independent content quality gate after /author-content (same bounded loop as /test, 07 is the arbiter of 'good enough'). Channel status (2026-06-26): freeform LIVE; Sitecore LIVE via the Marketer MCP against PREVIEW (author page/datasource/children; it does NOT publish — the single global publish is the final /publish step (preview-first); media via uploadMedia); personal blog/website still roadmap (T3 — needs the blog-platform probe, personal-site source not in the local tree). A live Sitecore/website write is an integration boundary: preview + operator-confirm -> author -> verify it landed on preview (publish deferred to /publish; NOT real-tenant smoke-tested yet — first run is the boundary check). NOT documentation (/document -> Doc Writer 09), NOT a spec (/create-prd|frd|bug), NOT code (/implement)."
+    },
+    "test-content": {
+      "intent": "verification",
+      "flow": "on_demand",
+      "file": "packs/platform/content-sdk/stages/test-content.md",
+      "interactive": true,
+      "agents": [
+        "07",
+        "14"
+      ],
+      "agent_sequence": [
+        "07",
+        "14"
+      ],
+      "modes": [
+        "pipeline",
+        "freeform"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "authored Sitecore page(s) or returned/markdown draft",
+          "selected UI design / POC clickdummy",
+          "components map (/discover-components)",
+          "brand kit (Sitecore native via get_brandkit_by_id OR an operator-provided file) — optional seam",
+          "product slug (pipeline content step)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/plans/content-test-report-<timestamp>.md",
+        "products/<product-slug>/content-test-evidence/<page>-<viewport>-<timestamp>.png"
+      ],
+      "gate_policy": "hard",
+      "next": [
+        "publish"
+      ],
+      "note": "Content counterpart of /test (the implementation test). Fresh, INDEPENDENT audit of authored content as it RENDERS — words + page structure (right components/order/completeness + content-resilience: oversized/many/empty) + look-and-feel (rendered page vs the yardstick). Same loop as /test (bounded to 3 cycles, 07 is the arbiter of 'good enough'): QA Specialist (07) audits with fresh eyes -> Content Author (14) fixes -> 07 re-audits critical -> report + stage_history(content_tested) -> HARD gate #3 -> /publish. Distinct from /author-content's IN-LOOP Content QA gate (the author's own fast self-check); /test-content is the authoritative pass (the reviewer who didn't write it). Axes: brand · voice-register fit · factual accuracy · channel format · structure · look-and-feel · [brand conformance]. Yardstick (no brand kit yet): selected UI design / POC -> Components Map (/discover-components) -> content-resilience contract -> design-eye heuristics. BRAND KIT is a PREPARED-BUT-INERT optional axis: when a Sitecore native brand kit (Marketer MCP list_brandkits/get_brandkit_by_id) OR an operator-provided file is supplied, a brand-conformance check is added; absent -> skipped+noted. Capture is mechanical (Marketer MCP preview/get_page_screenshot + Playwright); a live re-write during the fix loop is an integration boundary (preview->confirm->verify landed). Content-phase + on-demand (like /author-content) — NOT in the generic typical_sequence. Rename of /test -> /test-implementation is DEFERRED (see .agent/BACKLOG.md)."
+    },
+    "discover-components": {
+      "intent": "discovery",
+      "flow": "on_demand",
+      "file": "packs/platform/content-sdk/stages/discover-components.md",
+      "interactive": true,
+      "agents": [
+        "14"
+      ],
+      "inputs": {
+        "required": [
+          "a Sitecore site (Marketer MCP authenticated)"
+        ],
+        "optional": [
+          "site name",
+          "operator permission to build/reuse the Components Preview page tree"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/components-information/component-map.md",
+        "products/<product-slug>/project-planning/components-information/images/<component>.png"
+      ],
+      "gates": [
+        "build-permission",
+        "keep-or-teardown"
+      ],
+      "gate_policy": "soft",
+      "next": [
+        "author-content"
+      ],
+      "note": "Optional UPFRONT discovery step for the Content Author (14). Builds a persistent VISUAL Components Map for a Sitecore site — every component's purpose, fields, variants, and a real screenshot — so the Content Author decides when to use which component/variant (content + visual/structural pov). Preferred input for sitecoreai-content-composition (falls back to the inline inventory when absent). Mechanics (proven live 2026-06-26): inventory via Marketer MCP (list_components + existing pages + the Headless Variants groupings → Variant Definition children; a component instance's FieldNames param selects the variant, empty=default) → build/reuse a 'Components Preview' page tree under Home (one subpage per component, all variants; reused from the build phase on a pipeline run; STRUCTURAL components like Container / Column Splitter / Row Splitter get their inner placeholder FILLED with sample children so the shot isn't an empty box) → author demo content (list children created SEQUENTIALLY — parallel scrambles __Sortorder; BMP-safe emoji only) → Playwright preview-render screenshot per page → images/ → write component-map.md referencing them. HARD gates: Step 0 build-permission + Step 5 keep/teardown (operator, every run). Images are local/gitignored (regenerable); the map is the durable text record. Distinct from /discover-sitecoreai (that is build-side field-type discovery for the Architect)."
+    },
+    "cleanup-project-planning": {
+      "intent": "maintenance",
+      "flow": "setup",
+      "file": "commands/project/cleanup-project-planning.md",
+      "interactive": true,
+      "agents": [],
+      "inputs": {
+        "required": [
+          "user confirmation"
+        ]
+      },
+      "outputs": [],
+      "next": [
+        "prime"
+      ]
+    },
+    "research": {
+      "intent": "research",
+      "flow": "on_demand",
+      "file": "commands/project/research.md",
+      "interactive": true,
+      "agents": [
+        "03"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "free-form topic + question text",
+          "depth=quick|standard|deep",
+          "word_budget=<int>",
+          "write_to=storage/reports/sidecar/<path>",
+          "context=\"<one sentence>\""
+        ]
+      },
+      "outputs": [
+        "inline synthesis (Bottom line / Key findings / Sources / Caveats / Confidence)",
+        "optional: storage/reports/sidecar/<YYYY-MM-DD>-<slug>.md when write_to is passed"
+      ],
+      "note": "On-demand. Thin wrapper around the Research Sidecar (agent 03). Natural-language \"research X\" also works. Distinct from a scheduled research pipeline, which lives in a separate repo.",
+      "next": []
+    },
+    "commit-message": {
+      "intent": "maintenance",
+      "flow": "on_demand",
+      "file": "commands/project/commit-message.md",
+      "interactive": true,
+      "agents": [],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "type=feat|fix|docs|refactor|test|chore|perf|build",
+          "scope=<slug-or-area>",
+          "work_item=PRD-###|FRD-###|BUG-###",
+          "ship_status=shipped|shipped_with_caveats|incomplete",
+          "source=staged|working (default staged)",
+          "context=\"<one sentence>\"",
+          "free text intent"
+        ]
+      },
+      "outputs": [
+        "inline commit message draft that passes .agent/scripts/validate-commit-msg.mjs"
+      ],
+      "note": "On-demand manual helper for commit authoring. Reads staged/working diffs, drafts a commit-message-convention compliant message, and validates it against the same guardrails enforced by .githooks/commit-msg. Draft-only by default (does not auto-commit unless explicitly asked).",
+      "next": []
+    },
+    "doctor": {
+      "intent": "verification",
+      "flow": "on_demand",
+      "file": "packs/platform/content-sdk/stages/doctor.md",
+      "interactive": true,
+      "agents": [
+        "13",
+        "07"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "product=products/<group>/<slug>",
+          "org=<credential label>",
+          "env=<cmEnvId>",
+          "site=<siteName>",
+          "url=<live delivery url>",
+          "scope=env|site|page",
+          "page=/route",
+          "lang=<code>",
+          "visibility=public|private",
+          "checks=<ids|families>",
+          "out=<dir>"
+        ]
+      },
+      "outputs": [
+        "products/<group>/<product-slug>/project-planning/plans/doctor-report-<date>.md (+ .json), or out=<dir>"
+      ],
+      "note": "On-demand, read-only health check (doctor) of one SitecoreAI environment, site or page, backed by the sitecoreai-health-check skill (scripts/doctor.mjs). DevOps Engineer (13) runs the instruments (Deploy, Authoring, Edge live/preview, Monitoring logs, browser crawl); QA Specialist (07) arbitrates severity and may-be-intentional calls. Holds no gate token, resolves no pack brief, writes no stage_history, never crosses go_live: every request goes through one guarded layer that refuses mutations, non-read verbs and Edge Admin writes. Report P0-P3 with UNKNOWN and SKIPPED listed; findings hand off to /create-bug, /probe or tasks.md.",
+      "next": []
+    },
+    "probe": {
+      "intent": "probe",
+      "flow": "on_demand",
+      "file": "commands/project/probe.md",
+      "interactive": true,
+      "agents": [
+        "03",
+        "08"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "assumption stated as a falsifiable claim (free text)",
+          "mode=knowledge|empirical",
+          "target=<endpoint|tenant|file|url>",
+          "write_to=<repo-relative path>",
+          "context=\"<one sentence>\""
+        ]
+      },
+      "outputs": [
+        "inline verdict (confirmed | refuted | needs-more) + evidence (+ captured wire for empirical)",
+        "products/<product-slug>/project-planning/probes/probe-NNN.md (when a run context exists)"
+      ],
+      "note": "On-demand reality-check (rule 70-probe-and-tranche). Two modes: knowledge → Research Sidecar (03, source-grounded); empirical → Developer (08, throwaway spike against the real API/tenant/data). Usable standalone (freeform) or as a 🔍 probe tranche at the front of an architecture/implementation plan. Soft-gated except at the probe-tranche boundary, where the operator confirms go/no-go after verdicts. A refuted probe is a success outcome — cancel/promote-split/redesign.",
+      "next": []
+    },
+    "resume": {
+      "intent": "resume",
+      "flow": "on_demand",
+      "file": "commands/project/resume.md",
+      "interactive": true,
+      "agents": [
+        "00"
+      ],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "<product-slug> to target a specific product's in-flight run"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/workflow/current-run.json (reconciled to disk+git reality)",
+        "products/<product-slug>/project-planning/workflow/run-<timestamp>.json (stage_history reconcile entry)"
+      ],
+      "note": "On-demand crash-resilience / resume (rules 71-delivery-loop + 72-orchestrator-discipline). Recovers a run whose orchestrator crashed, disconnected, or was interrupted mid-flight: diff disk + git against the run manifest → update the manifest to reality → continue from manifest.next_action. Mechanizes the manual git-status reconstruction done by hand in a PRD-000 dogfood run. Idempotent (never restarts a committed+recorded unit); reconciles committed-but-unrecorded and written-but-uncommitted work; legacy runs without next_action derive it from the last stage_history entry + the flow sequence. Reads only git metadata + targeted manifest fields — never output artifacts into the orchestrator (rule 72). Continues from next_action unless a gate/[BLOCKER] requires an operator confirm.",
+      "next": []
+    },
+    "start-flow": {
+      "intent": "intake",
+      "flow": "on_demand",
+      "file": "commands/project/start-flow.md",
+      "interactive": true,
+      "agents": [],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "<prompt> — a sentence or two describing the work; asked for if omitted"
+        ]
+      },
+      "outputs": [
+        "nothing directly — resolves the composition, asks the weight, and dispatches",
+        "dispatches into create-bug | create-frd | create-prd (which own their own artifacts/gates)"
+      ],
+      "next": [
+        "create-bug",
+        "create-frd",
+        "create-prd"
+      ],
+      "note": "Front door for NEW work that arrives as a PROMPT — the twin of /triage, which routes work already in a per-product source and therefore cannot start a new product. A ROUTER, not a fourth intake weight: no artifact, no manifest field, no second resolution path. Resolves the pack triple by DELEGATING to M0's ladder (platform-pack.md § 2) and persists nothing — M0 resolves at step 0 and persists at step 17 inside the /create-* run. The WEIGHT is ALWAYS ASKED, never derived (operator decision 2026-08-23): promotion repairs the artifact, but a wrong frame has already shaped the grill, the dial and the branch before a valve fires. Under fully_autonomous it stops rather than guess. The picked weight stays provisional — both promotion triggers remain live. See .agent/glossary.md § 'Work item type' / § 'Type promotion'."
+    },
+    "triage": {
+      "intent": "intake",
+      "flow": "on_demand",
+      "file": "commands/project/triage.md",
+      "interactive": true,
+      "agents": [],
+      "inputs": {
+        "required": [],
+        "optional": [
+          "--source local|github (default local; github reads issues via gh)",
+          "--repo <owner/name> (github source; defaults to the product's origin remote)",
+          "<TASK-NNN> | <issue-number> to take a specific item",
+          "--list (read-only view)",
+          "--auto (non-interactive, policy-driven — the T4 local trigger)",
+          "--execute (with --auto: run the pipeline; default is notify-only)",
+          "--types bug[,feature,prd] (--auto eligibility; default bug)",
+          "--max N (--auto items per run; default 1)"
+        ]
+      },
+      "outputs": [
+        "products/<product-slug>/project-planning/tasks.md (local source: status / spawned_as updates; created from template if absent)",
+        "GitHub issue write-back (github source: comment + in-progress label on the picked issue)",
+        "dispatches into create-bug | create-frd | create-prd (which own their own artifacts/gates)"
+      ],
+      "next": [
+        "create-bug",
+        "create-frd",
+        "create-prd"
+      ],
+      "note": "Intake picker (external-source intake adapter). Reads a per-product source — local tasks.md queue OR github issues (via gh) — offers the next todo, and routes the pick THROUGH /create-bug|frd|prd (never straight to /implement) so the same-slots principle + gate ladder hold. github typing = label-map (bug→bug, enhancement→feature) + propose-and-confirm classifier fallback (policy A). Autonomous trigger (T4) is the remaining tranche. Distinct from research initiatives.md (bets) — an initiative promotes INTO the queue as an entry. --auto mode is the T4 local trigger (non-interactive; notify-only by default, --execute runs the pipeline to a PR; bugs-first / one-at-a-time / never-auto-merge); reuses this machine's local auth + repos + toolchain; scheduler recipe scripts/triage-auto.ps1. See .agent/glossary.md § 'Intake queue' / § 'Triage'. Sibling: /start-flow is the same router for work arriving as a prompt rather than from a source."
+    }
+  },
+  "skills": {
+    "sitecore": {
+      "description": "Domain knowledge for the Sitecore ecosystem, vendored under .claude/skills/ in this export.",
+      "plugins": [
+        "sitecore-guide",
+        "sitecore-blok",
+        "sitecore-content-sdk",
+        "sitecore-content-sdk-nextjs-app-router",
+        "sitecore-content-sdk-nextjs-pages-router",
+        "sitecore-marketplace",
+        "sitecore-platform",
+        "sitecore-setup"
+      ],
+      "skills": {
+        "setup-scaffold": "decision-tree entry point for greenfield Sitecore apps — picks Content SDK head / Marketplace Client-Side / Marketplace Full-Stack and routes to the matching setup-* skill. Run this FIRST for any greenfield project.",
+        "setup-content-sdk": "Content SDK head app scaffold — `npx create-content-sdk-app@latest nextjs`, failure policy, forbidden shortcuts, Edge context env setup, dotnet sitecore login/push",
+        "setup-marketplace-client-side": "Marketplace Client-Side (Mode A) scaffold — shadcn quickstart, next-app/ flatten, lint and Badge-API fixes, Vitest test stack, useSyncExternalStore template, Chrome PNA headers; HTTP localhost OK",
+        "setup-marketplace-full-stack": "Marketplace Full-Stack (Mode A + Mode B) scaffold — shadcn quickstart, empty-mjs deletion, lint fixes, Vitest, merged CSP+PNA headers, HTTPS dev script + mkcert, four-prompt env-var chain (AUTH0_CLIENT_ID/APP_ID/ORGANIZATION_ID/TENANT_ID), response-unwrap convention",
+        "marketplace-sdk-lifecycle": "before any Marketplace code — custom/public app, Cloud Portal registration, app architectures (client-side iframe / full-stack / experimental server-to-server), Auth0 authorization, hosting, public-app submission",
+        "marketplace-sdk-client": "Marketplace app uses @sitecore-marketplace-sdk/client — ClientSDK.init, Provider + singleton patterns, query/mutate/subscribe, base QueryMap/MutationMap/SubscribeMap, extension-point types, response unwrap, error codes",
+        "marketplace-sdk-xmc": "Marketplace app reads/writes SitecoreAI data (@sitecore-marketplace-sdk/xmc) — xmc.* endpoints (sites, pages, agent, GraphQL, content-transfer, search), module vs experimental_createXMCClient, lazy-item-resolution snippet pack under assets/",
+        "marketplace-sdk-ai": "Marketplace app uses AI skills (@sitecore-marketplace-sdk/ai) — generateBrandReview, ExtractableFile types, params-wrapper trap, module + experimental_createAIClient",
+        "marketplace-sdk-extension-routes": "interactive post-scaffold — pick Cloud Portal extension points, name route URL per point, generate Next.js App Router files, produce App Studio paste table",
+        "marketplace-sdk-testing-debug": "during dev/QA — local HTTPS, mkcert, Chrome Local Network Access, test-app registration, iframe cookie config, orgId/tenantId/contextId capture, debugging checklist",
+        "marketplace-sdk-host-frame-testing": "host-frame visual testing recipe — load app in real Cloud Portal host URL via Playwright, locate by iframe origin, clip screenshot, compare against winning POC clickdummy",
+        "blok-setup": "shadcn init + Blok theme + components.json @blok registry + Tailwind v4 / Nova preset notes — load when scaffolding new Sitecore-styled UI",
+        "blok-components": "Blok primitives (65+) and bloks (composite blocks) catalog with registry URLs — pick the right Sitecore-styled building block",
+        "blok-theming": "8 Blok token categories (colors/typography/spacing/radius/shadows/sizes/breakpoints/semantic) + dark mode + RTL + iframe constraints — load before overriding any visual style",
+        "blok-mcp": "Blok MCP via shadcn MCP server — enable AI-assisted component generation in Claude Code / Cursor / Copilot",
+        "blok-marketplace-integration": "Blok × Marketplace SDK iframe patterns — extension-point shells, viewport constraints, theming inside iframes, public-app submission checklist",
+        "sitecoreai-auth": "shared OAuth 2.0 client-credentials auth for all four SitecoreAI APIs — automation client creation, token endpoint, three-segment env-var naming, token caching, 401 handling",
+        "sitecoreai-agent": "high-level Agent API — page/component/personalization/brief operations, screenshot endpoint quirks, jobId revert trail",
+        "sitecoreai-pages": "low-level Pages API — page CRUD, versions, variants, layout/field updates, duplicate, rename, translate",
+        "sitecoreai-publishing": "Publishing API — create/list/monitor/cancel publishing jobs + summary statistics, scope requirements, lifecycle",
+        "sitecoreai-sites": "Sites API — sites, collections, languages, hosts, editor profiles, sitemap, page hierarchy, background jobs",
+        "sitecoreai-edge-admin-webhooks": "Experience Edge Admin API — Edge administration client (creatable via the Deploy API), publish webhooks (OnUpdate for OSR; retries + auto-disable), settings, cache clear",
+        "sitecoreai-serialization": "Sitecore Content Serialization module DESIGN — sitecore.json globs, *.module.json includes, scope, push operations, rules, what to serialize (full record vs shell), one module per collection on a shared CM, IAR vs scsModules deploy, traps that delete or strand items; CLI login/push mechanics stay in sitecoreai-cli-cloud-workflow",
+        "sitecoreai-health-check": "read-only doctor for one environment, site or page — Edge census and drift, broken links and references, missing templates, CM/editing-host logs, delivery gates (robots, media, crawl, context id) shared with /publish, P0-P3 report; one guarded request layer refuses every write",
+        "sitecoreai-search-sources": "SitecoreAI integrated search backend — content / site / push sources, field flags, reindex wipes pushes, config read API (scope-gated outside Marketplace), Ingestion push with a --yes-gated validator; source setup is UI-only. Head-app UI: content-sdk-search",
+        "sitecoreai-site-template": "website factory: site templates for the Create Site dialog and page blueprints (prefilled branch pages for Create a page) built live from a JSON spec, plus capture of an existing site or page back into a spec (extract-spec, exact Edge round trip); Solution template + HeadlessSiteSetupRoot + generated SPE scaffold scripts, built live from a JSON spec via Authoring GraphQL (no deploy), lint against the CM and the head-app component map, smoke-verify by creating a throwaway site (job exceptions, page types, components, host, Edge preview), optional serialization module; Skatepark = the built-in Basic template",
+        "sitecoreai-localization": "languages on a tenant — add an environment language, enable per site and host, language versions (added EMPTY) and AI translation, Dictionary entries, fallback (env patch vs host flags), per-locale publish, read-back on Edge, language-census.mjs. Head-app i18n: content-sdk-app-router-dictionary-and-i18n"
+      },
+      "content_sdk_skills": "44 additional Content SDK skills across three clusters: content-sdk-app-router-* (15) and content-sdk-pages-router-* (11) mirror the same per-concern surface (component scaffolding, registration, variants, data strategy, GraphQL fetching, multisite, sitemaps, dictionary/i18n, editing-safe rendering, route configuration, troubleshoot-editing), with App Router carrying four it does not share (theme-hydration-pattern, component-level-navigation, cache-components-and-osr, atoms); content-sdk-* (18) is router-agnostic (troubleshooting triage hub, feature planner, collection data model (which of four classes a many-items component is: owned rows, derived view, curated reference, shared library, and its delivery; bundles probe-list-delivery), component review (bundles the authorability, schema, comment-density and base-chain gate scripts), layout composition (structure components, grid params, layout policy + responsive matrix, component fit tiers, slot components; bundles check-layout-wiring and lint-layout), field usage, site setup + env, upgrade assistant, resolver patterns, variants-vs-siblings, component naming traps, debug layout probe, playground pattern, website build flow, analytics events, personalization, search, tracking consent). Install the content-sdk / content-sdk-app-router / content-sdk-pages-router cluster plugins to access them. NOTE: this repo vendors App Router + router-agnostic locally and deliberately does NOT carry content-sdk-pages-router-* — cross-references to those names resolve for marketplace consumers, not here."
+    }
+  },
+  "flows": {
+    "project": {
+      "name": "Project Development",
+      "description": "Sequential planning and implementation pipeline",
+      "intake_types": {
+        "description": "Schema 8 (2026-06-08) added three intake entry points into ONE shared engine, discriminated by manifest work_item_type. Same artifact slots, different fill. See `.agent/glossary.md` § 'Work item type'.",
+        "prd": {
+          "command": "create-prd",
+          "weight": "full",
+          "next": "challenge-prd"
+        },
+        "frd": {
+          "command": "create-frd",
+          "weight": "feature — skips architect/UI by default",
+          "next": "challenge-prd"
+        },
+        "bug": {
+          "command": "create-bug",
+          "weight": "bug — autonomous, RED-test-first, thin inline task breakdown",
+          "next": "implement"
+        }
+      },
+      "typical_sequence": [
+        "prime",
+        "rubber-ducky",
+        "create-prd",
+        "challenge-prd",
+        "architect",
+        "design",
+        "task-breakdown",
+        "implement",
+        "code-review",
+        "test",
+        "ship"
+      ],
+      "frd_sequence": [
+        "create-frd",
+        "task-breakdown",
+        "implement",
+        "code-review",
+        "test",
+        "ship"
+      ],
+      "bug_sequence": [
+        "create-bug",
+        "implement",
+        "code-review",
+        "test",
+        "ship"
+      ],
+      "content_sdk_sequence": [
+        "prime",
+        "rubber-ducky",
+        "create-prd",
+        "discover-sitecoreai",
+        "architect",
+        "design",
+        "task-breakdown",
+        "provision-sitecoreai",
+        "implement",
+        "code-review",
+        "test",
+        "ship",
+        "discover-components",
+        "author-content",
+        "test-content",
+        "publish"
+      ],
+      "delivery_loop_note": "The implement→code-review→test span is a DELIVERY LOOP (glossary § 'Delivery loop', rule 71-delivery-loop.mdc), run per component tranche (glossary § 'Tranche' — component-vertical, then additional-logic) as a FRESH {Developer→Code-Reviewer→QA} triad spawned sequentially by the orchestrator (fresh slim context each time, no context carried across the boundary): one component fully implemented (all its items) → code-reviewed → tested as a unit; each triad member returns a decision-grade minimal report; a code-review Critical/Major or a test failure loops back to a fresh /implement (the Developer), bounded to 5 cycles then escalate; exit = review clean + test green → the orchestrator COMMITS + RECORDS the component (durable crash-checkpoint) → a brand-new triad for the next component. Applies to ALL runs. CADENCE (scope_dial.delivery_loop) moves the QA leg only: under `once` each tranche is a {Developer→Code-Reviewer} PAIR (code review is per tranche in BOTH values; commit + record at review-clean) and a SINGLE /test runs over the whole build at the end. STRICT-ORCHESTRATOR + CRASH-RESILIENCE (rule 72-orchestrator-discipline.mdc, 2026-07-10): during pipeline execution the orchestrator coordinates only (spawns subagents, passes paths not contents, validates by verifier-subagent, guards Bash output, holds no un-persisted state); every stage/tranche/component checkpoints to git + the manifest (manifest.next_action names the next step); /resume reconciles disk+git vs the manifest and continues from next_action. Rule 72 is PIPELINE-EXECUTION-ONLY (not plain conversation / direct asks). Content phase (discover-components → author-content ⇄ test-content) moved AFTER /ship, and /publish is the final live step — preview-first/publish-last (2026-07-06).",
+      "content_sdk_note": "Content SDK branch (platform:content-sdk). /discover-sitecoreai (read-only) runs BETWEEN /create-prd and /architect — scenario interview + (existing CM) reads the real content_model through the operator's existing CM code base so /architect designs against facts (NEW sites skip the read; the model is derived from the static app). When the operator explicitly provides URL(s) and requests a rebuild/parity run, execute /source-analysis immediately after /create-prd (or /challenge-prd) and before /discover-sitecoreai or /architect. /design is the standalone UI stage after /architect. /provision-sitecoreai (DevOps Engineer 13) runs BETWEEN /task-breakdown and /implement — stands up the decoupled CM + editing host and deploys the baseline (upload-based, Git-free). The implement→code-review→test span is a DELIVERY LOOP run per component tranche (glossary § 'Delivery loop' / § 'Tranche'; rule 71-delivery-loop.mdc): one component fully implemented (all its items) → code-reviewed → tested as a unit, loop-back to the Developer on a Critical/Major or a test fail (bounded 5, then escalate), then the next component. PREVIEW-FIRST/PUBLISH-LAST (2026-07-06, glossary § 'Preview-first delivery'): /implement, /test, /author-content, /test-content all work against PREVIEW — nothing is published until the end. /ship ships CODE ONLY (editing-host + Vercel deploy against the PREVIEW context, commit, PR — it no longer publishes). The content phase runs AFTER /ship: /author-content (Content Author 14 + in-loop Content QA 07) authors real brand content (or seeds test pages) into Sitecore via the Marketer MCP against preview, then /test-content (QA Specialist 07 fresh audit + Content Author 14 fixes) is the authoritative content gate (content + structure + look-and-feel; brand-kit axis is a prepared optional seam) — the author⇄tester content loop is bounded (07 is the arbiter of 'good enough', 3 cycles then escalate). /publish is the FINAL step: it publishes EVERYTHING via the Publishing REST API (layout items + authored content + media), pulls the authored items into cm/ + commits them for durability, and re-deploys the editing host + Vercel on the LIVE SITECORE_EDGE_CONTEXT_ID (the 200-not-302 media gate moved here from /ship). The live publish is operator-confirmed (integration boundary). Subpipeline 2026-06-25 (content phase added 2026-06-26; /test-content content-test stage added 2026-06-27; content-after-ship + /publish + delivery loop 2026-07-06)",
+      "on_demand": [
+        "document",
+        "status",
+        "probe",
+        "doctor",
+        "resume",
+        "triage"
+      ],
+      "gate_policy": {
+        "description": "Each command declares `gate_policy: hard|soft` in its own block, but the hard gates are OPERATOR-CONFIGURABLE at kickoff (scope_dial.gates, pick-any; 2026-07-07). DEFAULT AUTONOMOUS — review gates + 1 outward-boundary confirm: spec (challenge-prd close — the reviewed spec; create-prd inherits it only on skip critical review), design (design clickdummy), build (end-of-build review of the Components Preview page at /test close — content-sdk runs where a content phase follows; inert otherwise), final (test-content close / test for non-content runs), go_live (confirm before provisioning/first-real-write/live-writes and the /publish go-live). Effective review-stops stay ~3 per run (non-content: spec/design/final; content: spec/[design]/build/final). The build phase is autonomous — build/final is the ONLY stop during/after the build, never per-component or mid-build (rule 71). A stage's hard stop fires iff its gate token is true (all default true = auto_3_gates). The operator picks any subset; unticking ALL = fully_autonomous (zero human interaction — live publish + real-tenant boundaries run unattended). Genuine blockers (stage-cannot-complete, bug can't-reproduce/not-contained valves, [BLOCKER] items) still stop regardless of the gate set. Everything else is SOFT — auto-recommends next, stops only on a critical trigger or [BLOCKER]. create-prd asks ONCE upfront (scope-dial); do NOT untick/add gates by default. Supersedes the schema-8 work-item gate ladder (which stopped too often — task-breakdown is now soft). See `.agent/glossary.md` § 'Operator Gate' + `.agent/manifests/README.md` § 'Scope dial'.",
+        "content_authoring_note": "The Content SDK content phase (discover-components → author-content ⇄ test-content → publish) is gated on scope_dial.content_authoring: auto (default — runs iff the active platform pack declares the dial), yes (force), no (skip — /ship is terminal). scope_dial.imagery (mood default / none) sets how /author-content fills empty Image fields.",
+        "hard_default": [
+          "challenge-prd",
+          "design",
+          "test (end-of-build review — build gate on content-sdk, final gate on non-content)",
+          "test-content",
+          "publish (go-live confirm)"
+        ],
+        "hard_note": "'hard_default' lists the stages that hard-stop when their gate token is on (the default). Each becomes SOFT/auto-continue when its token is unticked (custom / fully_autonomous). /test is hard ONLY on its end-of-build pass (build/final gate); its mid-loop passes (per_component cadence) and freeform runs stay soft — hence it also appears under 'soft'. go_live also governs the outward-boundary confirms in provision-sitecoreai / implement / author-content / test-content.",
+        "soft": [
+          "create-frd",
+          "create-bug",
+          "discover-sitecoreai",
+          "architect",
+          "task-breakdown",
+          "provision-sitecoreai",
+          "implement",
+          "code-review",
+          "test",
+          "ship",
+          "discover-components",
+          "author-content",
+          "publish"
+        ]
+      },
+      "notes": "source-analysis added 2026-07-03 as an on-demand conditional stage for URL-backed rebuild parity (only when the operator provides URLs and explicitly wants rebuild extraction). Standard pipeline remains unchanged. document moved to on-demand 2026-05-08 (1/8 portfolio uptake). challenge-prd moved to on-demand 2026-05-08 and REJOINED the canonical sequence 2026-07-29 as the dedicated spec-review stage split out of /create-prd steps 12-13 (it now owns the merge of its own answers + carries the spec gate). /ship's scope_dial.docs_at_ship == auto-lite emits inline README + CHANGELOG. /status added 2026-05-08 as portfolio overview. Two-gate operator-gate policy added 2026-05-20. Three intake types (prd/frd/bug) added 2026-06-08 (schema 8) — one engine, three weights. 2026-07-06 build-flow rework: (1) the implement→code-review→test span is a DELIVERY LOOP run per component tranche (rule 71-delivery-loop.mdc; component-vertical task breakdown, then additional-logic), loop-back to the Developer on Critical/Major or test fail (bounded 5), for ALL runs; (2) preview-first/publish-last — the Content SDK content phase (discover-components → author-content ⇄ test-content) moved AFTER /ship, /ship ships code-only against preview, and a new /publish is the final live step; the author⇄test-content content loop is bounded with 07 as arbiter. 2026-07-07 scope-dial expansion: operator stop-points are now pick-any + reducible to zero (scope_dial.gates: spec/design/final/go_live, all default on = auto_3_gates; unticking all = fully_autonomous — publishes unattended), and content authoring is a kickoff dial (scope_dial.content_authoring auto/yes/no gates the whole content phase; scope_dial.imagery mood/none sets empty-Image-field fill). 2026-07-16 build gate + Components Preview: the flat build-phase 'Components Test' page is renamed 'Components Preview' and restructured to one subpage per component with all variants (rule 80 §0b) — the operator's single end-of-build review surface, reused by /discover-components. New scope_dial.gates.build token (default on) fires that review at /test close on content-sdk runs; the build phase is autonomous (no per-component/mid-build operator stops — a real run over-stopped, which this fixes). 2026-07-13 build-loop cadence dial: added scope_dial.delivery_loop (per_component default | once) — per_component reviews+tests each component tranche (best outcome, more cost), once batches the test leg (cheaper); inert on single-tranche runs (rule 71-delivery-loop.mdc). 2026-07-29 cadence scope narrowed to the QA leg: /code-review now runs PER TRANCHE under BOTH values (it is diff-local and cheap — batching it saved nearly nothing while letting a defect sit under N tranches of new work), and `once` defers only /test to a single whole-build integration pass, committing each tranche at review-clean. This makes `once` the serial twin of delivery_parallelism=parallel, which was already review-local + one post-merge QA. Asked in three AskUserQuestion calls at /create-prd kickoff (planning batch of 4 + autonomy/build-cost batch of 4 + imagery/reference batch of 2; tool caps at 4/call)."
+    },
+    "setup": {
+      "name": "Setup & Maintenance",
+      "description": "Initial configuration, portfolio status, and artifact reset",
+      "commands": [
+        "prime",
+        "status",
+        "cleanup-project-planning"
+      ]
+    }
+  },
+  "_generated": {
+    "by": "export-flow.mjs",
+    "flow": "content-sdk.greenfield.developer",
+    "composition": [
+      "platform:content-sdk"
+    ],
+    "warning": "GENERATED — do not hand-edit. Re-run the export instead; edits here are lost and create the drift the export exists to prevent."
+  }
+}

@@ -1,0 +1,61 @@
+---
+description: Control mid-turn chat narration (Output Level minimal|verbose) so autonomous/execution stages stop burning output tokens on play-by-play; does not shrink artifacts on disk or strip planning reasoning the operator is watching.
+alwaysApply: true
+---
+
+# Output Verbosity — Results Over Play-by-Play
+
+## What this controls
+
+**Chat / transcript narration during a turn** — the model's own step-by-step commentary between tool calls ("Reading X…", "Now writing Y…", "Running the suite…").
+
+**Not controlled here** (leave alone):
+
+- **Artifacts on disk** — PRDs, ADRs, task breakdowns, code, tests, ship reports stay complete. Complete is not long: match a document's length to what the task needs, cover the substance, and do not pad it with filler sections, redundant summaries or boilerplate. Every downstream agent pays for each line in input tokens.
+- **Decision-grade final envelopes** — rule `72` still requires the ≤5-line return envelope.
+- **Operator-facing gate messages** — Checkpoint blocks, AskUserQuestion prompts, and hard-stop copy stay clear.
+- **Visible planning reasoning the operator is watching** — discovery, critical review, and architecture keep their reasoning when Output Level is `verbose` (the default pin for those roles).
+
+Rule `72` already minimized *inter-agent handoffs*. This rule minimizes *intra-turn narration* — the remaining token sink on autonomous runs.
+
+## Output Levels
+
+| Level | Mid-turn chat | When to use |
+|-------|---------------|-------------|
+| **`minimal`** | Silence (or ≤1 short blocked/escalate line). No tool play-by-play. Persist progress on disk, not in chat. Final message = decision-grade envelope only. | Execution stages; any `fully_autonomous` run; watching cost. |
+| **`verbose`** | Short progress OK when an operator is watching. Still prefer structured updates over essays. | Discovery / critical review / architecture (reasoning *is* the product); debug a stuck run. |
+
+**Artifacts ≠ narration.** Under `minimal`, write full files; just do not narrate writing them.
+
+## Resolution order (highest wins)
+
+1. **Spawn-prompt override** — an explicit `Output Level: minimal|verbose` line in the Team Lead / command spawn prompt.
+2. **`scope_dial.output_verbosity`** when set to `minimal` or `verbose` (not `auto`) — set at `/create-prd` Call 3 (Narration), or via slash `verbosity=` / message signal.
+3. **`fully_autonomous` force** — when `scope_dial.autonomy == fully_autonomous` (or all gates off) and the dial is `auto`/unset → treat as **`minimal` for every spawn** (nobody is watching).
+4. **Agent frontmatter `output_verbosity:`** — the per-identity pin (`minimal` on execution roles; `verbose` on discovery / critical-review / architecture identities). **This is the Recommended default** when the operator picks `Auto — role defaults`.
+5. **Legacy fallback** — unset everywhere → same as step 4's intent: execution `minimal`, planning `verbose`.
+
+## Orchestrator duty (Team Lead / pipeline main)
+
+On **every** specialist spawn, resolve the level above and include this exact line in the prompt:
+
+```
+Output Level: <minimal|verbose>
+```
+
+Do not rely on the subagent "remembering" its frontmatter alone — the explicit line is the enforceable contract (same belt-and-suspenders pattern as naming `subagent_type` for model/effort).
+
+## Agent pins (defaults)
+
+| Pin | Agents | Why |
+|-----|--------|-----|
+| `verbose` | 01 Rubber Ducky · 02 Product Manager · 04 Software Architect · 05 UI Designer · 06 Lead Developer | Operator-watched reasoning / planning surfaces |
+| `minimal` | 00 Team Lead · 03 Research Sidecar · 07 QA · 08 Developer · 09 Doc Writer · 13 DevOps · 14 Content Author · 99 Source Analyst | Contract-driven execution; meta-chat is pure cost |
+
+14 Content Author: `minimal` applies to **meta-narration** only — authored page/blog copy stays full voice.
+
+## Relationship to other rules
+
+- `72-orchestrator-discipline.mdc` — final handoff envelope; this rule is mid-turn silence.
+- `71-delivery-loop.mdc` — delivery loop stages are the highest-volume `minimal` consumers.
+- Optimization roadmap Option 2 — ships this axis; named intensity profiles (`scope_dial.intensity`) remain optional later.

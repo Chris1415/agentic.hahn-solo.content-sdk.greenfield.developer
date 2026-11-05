@@ -1,0 +1,36 @@
+---
+description: Content SDK navigation root/depth must be content-managed (authored datasource + coded Edge fallback), never an env-var nav root and never a string-constructed site-Home guess. Depth is the namespaced NavDepth parameter.
+alwaysApply: true
+---
+
+# Navigation Root Resolution — Content-Managed, Never Env-Configured
+
+## The rule
+
+For any Sitecore Content SDK head-app navigation, the nav **root** and **depth** are **content-managed** — authored on the rendering, with a coded fallback. Two patterns are **forbidden** because they shipped a real bug (the PRD-000 `[BLOCKER]`: empty nav on the git-linked editing host):
+
+1. **Never an env-var nav root.** Do not resolve the nav root from `process.env.NEXT_PUBLIC_NAV_ROOT_PATH` (or any app-level env var). An env var lives only in `.env.local` (gitignored) and does NOT travel with a git deploy → the deployed editing host / Vercel renders an empty nav. Nav correctness must not depend on per-environment app config.
+
+2. **Never a string-constructed site-Home guess.** Do not build the root as `` `/sitecore/content/${siteName}/Home` `` (or any hand-assembled `/sitecore/content/...` path). That string **omits the collection segment** (`/sitecore/content/<collection>/<site>/Home`, e.g. `Brand-Collections/Acme`) → it queries a non-existent item → empty nav. The head app **cannot reliably know the site's Home** from context and must not guess it.
+
+## The correct pattern
+
+- **`root` = the rendering DATASOURCE, authored `query:$home` by default.** Author the (Header) rendering's datasource default = **`query:$home`** — the SXA current-site start-item token, resolved server-side *before* Edge to the concrete `/sitecore/content/<collection>/<site>/Home`. Authored once per site on the `__Renderings` entry (`s:ds="query:$home"`) in the Partial Design → brand-agnostic, zero code-side guess. Hedge: the **concrete Home item ID** (braced GUID) if `query:$home` shows publish-path friction.
+- **Empty-root coded fallback = Edge `siteInfo.rootPath`.** ONLY when the authored datasource is empty, resolve the site root from live Edge `site { siteInfo(site: page.siteName) { rootPath } }` via `client.getData`, then `Home = rootPath + "/Home"`. `getData<T>` returns the **UNWRAPPED** data node — read `data.site.siteInfo.rootPath` (**NO extra `.data`**; not the `xmc` double-`.data.data`). `rootPath` carries the full correct path incl. the collection segment. Unresolved → an **empty-nav landmark** (`<nav aria-label>` with no items), never a crash.
+- **Depth = the namespaced `NavDepth` rendering PARAMETER.** Default 2, clamped to a sane max (e.g. 4) in code. **Never** name it `Level`/`Levels`/`Depth` (they collide with base-template / SXA fields — `LevelFrom`/`LevelTo`/`Styles` — and go invisible in Pages).
+
+## Regression guard (mandatory for nav work)
+
+Ship a test that fails if the anti-pattern returns: a **static source scan** (no `NEXT_PUBLIC_NAV_ROOT_PATH` read + no `/sitecore/content/${...}/Home` literal on the nav-root source path), an **`.env*` scan** (no `.env*` file carries a nav-root env var), and a **behavioral** check (a non-empty root resolves with the env var unset). This is the test that would have caught the original deploy bug.
+
+## Agent application
+
+- **06 Lead Developer:** Any nav task's § 4c must specify authored-datasource root + coded Edge fallback + `NavDepth` param. Never spec an env-var nav root or a constructed site-Home path.
+- **07 QA Specialist:** Require the regression guard above as a RED-first test for nav work. Reject a fixture that reads `getData` with an extra `.data`.
+- **08 Developer:** If you find yourself writing `process.env.*` for a nav root or `` `/sitecore/content/${site}/Home` ``, STOP — read the authored datasource and fall back to Edge `siteInfo.rootPath`.
+
+## Cross-references
+
+- `content-sdk-app-router-component-level-navigation` skill — the full pattern (server L1 + lazy `NavDepth`-bounded per-level fetch, "Content-managed root + depth").
+- `40-sdk-contracts.mdc` — `getData<T>` returns the unwrapped data node; derive the shape from the `.d.ts` + a live payload, never from prose.
+- `content-sdk-component-naming-traps` — nav support files (`resolve-root.ts`, `queries.ts`, `nav-*.tsx`) live in `src/lib/navigation/`, never in `src/components/<Component>/`.

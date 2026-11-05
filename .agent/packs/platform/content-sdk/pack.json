@@ -1,0 +1,1687 @@
+{
+  "$schema": "../../pack.schema.json",
+  "id": "content-sdk",
+  "kind": "platform",
+  "contract": 1,
+  "version": "0.1.0",
+  "title": "SitecoreAI Content SDK head application",
+  "status": "declares-today",
+  "scope": "TRANCHES 1-5 — every stage-shaped command reads this pack, and the six stages + two agents it OWNS now live here.",
+  "detect": {
+    "signals": [
+      {
+        "test": "package.json has a dependency whose name starts with @sitecore-content-sdk/",
+        "confidence": "strong",
+        "source": "06-implement.md:306",
+        "match": {
+          "kind": "dependency_prefix",
+          "value": "@sitecore-content-sdk/"
+        }
+      },
+      {
+        "test": "sitecore.config.ts exists at the target root",
+        "confidence": "corroborating",
+        "source": "06-implement.md:308",
+        "match": {
+          "kind": "path_exists",
+          "value": "sitecore.config.ts"
+        }
+      },
+      {
+        "test": ".sitecore/ directory exists at the target root",
+        "confidence": "corroborating",
+        "source": "06-implement.md:308",
+        "match": {
+          "kind": "path_exists",
+          "value": ".sitecore"
+        }
+      }
+    ],
+    "corroborating_alone_is_insufficient": true,
+    "records": "notes.composition_detected_from: codebase",
+    "machine_readable": "Every signal carries a `match` beside its prose `test`. Detect is the ONE mechanical predicate class in the contract — everything else (`when:` on a skill) is a judgement and stays prose. Without this the detect rung could only ever be graded by hand."
+  },
+  "variables": {
+    "router": {
+      "values": [
+        "app",
+        "pages"
+      ],
+      "default": "app",
+      "detect": [
+        {
+          "test": "src/app/ exists and src/pages/ does not",
+          "value": "app",
+          "match": {
+            "kind": "path_exists_and_not",
+            "value": "src/app",
+            "not": "src/pages"
+          }
+        },
+        {
+          "test": "src/pages/ exists and src/app/ does not",
+          "value": "pages",
+          "match": {
+            "kind": "path_exists_and_not",
+            "value": "src/pages",
+            "not": "src/app"
+          }
+        }
+      ],
+      "records": "platform_router",
+      "note": "Interpolated into skill names as {router}. THIS REPO IS APP ROUTER ONLY — every head app under products/head-application/ is App Router (root CLAUDE.md)."
+    },
+    "repo_topology": {
+      "values": [
+        "repo-per-deployable",
+        "monorepo"
+      ],
+      "default": "repo-per-deployable",
+      "resolved_at": "intake",
+      "records": "repo_topology",
+      "note": "The run's answer to the topology question. Pass it back to the resolver as `--topology <value>` and the brief's `workspace` + `repo_setup` come back already resolved — see repo_topology.variants. This is the ONLY value a stage passes in; it never re-derives the layout itself."
+    },
+    "authoring_mode": {
+      "values": [
+        "new",
+        "reuse"
+      ],
+      "default": null,
+      "resolved_at": "intake",
+      "records": "authoring_mode",
+      "read_by": "/create-prd § 10a (the NEW vs EXISTING CM branch — which repos exist and whether first-time repo setup runs at all), /discover-sitecoreai (copies templates/authoring-baseline/ into cm/ only under `new`), /provision-sitecoreai (creates a Deploy project + environment only under `new`; under `reuse` the editing host connects to the existing CM env via `editinghost create --cm-environment-id`).",
+      "no_default_why": "Deliberately null. Every other variable here has a safe default; this one does not, because both answers are irreversible in opposite directions — `new` consumes tenant surface that must then be torn down, and `reuse` writes into an estate somebody else depends on. A default would be the framework picking which of those risks the operator runs.",
+      "note": "Does a run CREATE an authoring solution or REUSE one? Strictly independent of `repo_topology` (where the head app is stored) and of the content-model question (whether this site gets its own brand namespace). All four authoring x topology combinations are valid.",
+      "finding": "Declared 2026-09-01. The decision was always being made — /create-prd § 10a, /discover-sitecoreai and /provision-sitecoreai each branch on 'NEW vs EXISTING CM' — but no question asked it and no field recorded it, so all three re-derived it independently from whether a `cm/` folder happened to exist on disk. Deriving a provisioning decision from a directory listing is the same class as rule `88`'s 'a gate must fail when a thing exists and nothing uses it', inverted: three consumers, no declaration."
+    },
+    "brand": {
+      "values": "free",
+      "note": "The Sitecore brand / site namespace. Supplied by the run, not by the pack. Used in tranche_exit paths."
+    },
+    "list_delivery": {
+      "values": [
+        "integrated_graphql",
+        "multilist"
+      ],
+      "default": "integrated_graphql",
+      "records": "variables.list_delivery",
+      "read_by": "stages.task-breakdown.per_component_decisions — the LIST-component decision reads this rather than re-asking or defaulting per component",
+      "note": "How a repeating-row rendering DELIVERS its rows. `integrated_graphql` = rows are CHILDREN of the datasource: one write per row, an add-affordance in Pages, workflow-controlled go-live. `multilist` = rows are REFERENCES to items elsewhere: two operations in two places, no add-affordance — right only when the rows are genuinely SHARED across components or pages. This is an authoring-ergonomics trade the operator owns, not an architecture default.",
+      "finding": "Declared 2026-08-31. The question resolving it was added on 2026-08-28 and the field existed nowhere, so `clone-field-contract.test.mjs` (`every question resolves a field the template or the pack declares`) went RED and stayed red — the pre-commit hook runs the validator, not the script suites, so nothing surfaced it. Both halves are the same class: a question resolving into nothing, and a per-component decision with no declared input."
+    },
+    "delivery_visibility": {
+      "values": [
+        "public",
+        "private"
+      ],
+      "default": "public",
+      "resolved_at": "intake — DERIVED from the composition default (a method pack may re-default it via `variable_defaults`), never asked. An operator who volunteers the other answer overrides it.",
+      "records": "variables.delivery_visibility",
+      "read_by": "/provision-sitecoreai § 7e (which RobotsContent to seed), /ship close-out § 2 (the delivery surface and its protection), /publish § \"Standing up the delivery surface\", § 6a (link-crawl identity) and § 6b (robots gate direction)",
+      "public": "The delivery surface is a public website: anonymous visitors, crawlable, indexable. § 6b asserts 200 and NO `Disallow: /`; § 6a crawls anonymously.",
+      "private": {
+        "contract": "The delivery surface is reachable only behind a gate and never indexable. All four hold together: (1) an access gate on EVERY path including /robots.txt and /sitemap.xml — an app-level password gate (401 + `X-Robots-Tag: noindex` for anonymous requests, a signed cookie after the password) or the host's own deployment protection; (2) `RobotsContent` = `User-agent: *` / `Disallow: /` on the site Settings item, published; (3) `noindex` on every page (header or meta), so a leaked authenticated render still carries it; (4) the gate's secret lives in the host's env vars on ALL THREE targets, never in the repo.",
+        "gates_invert": "§ 6b asserts the OPPOSITE of the public gate: anonymous `/robots.txt` returns 401 (the access gate answers first), and the AUTHENTICATED body contains `Disallow: /`. § 6a runs AUTHENTICATED through the gate — an anonymous crawl of a private site measures the gate, not the links. Neither is a deviation to record; it is the declared contract.",
+        "host_note": "Vercel Hobby has no password protection for the production domain, and Vercel deployment protection answers a 302 to SSO (which a crawler treats as a redirect, not a refusal). An app-level gate is portable across hosts and plans, and is what the 2026-09-29 clone shipped."
+      },
+      "never": "Never put a Vercel target on the PREVIEW Edge context on a URL anyone outside the team can reach — whatever the visibility. On 2026-09-28 a clone served unpublished preview content at a public production URL for a day, by operator override, before anything was gated. The preview surface is the editing host (glossary § \"Preview-first delivery\" → Surfaces).",
+      "why": "Declared 2026-09-30 from the sitecore.com clone (PRD-000). The operator asked to take the public site down: \"as this is a website clone I do not want others to be able to see or access it over a longer period of time as it might conflict SEO or AEO wise.\" Every live gate in /publish assumed a public site — § 6b failed a Disallow body, § 6a crawled anonymously — so the run could only close by recording two operator deviations against its own pack. A decision every live gate branches on belongs in a declared variable the stages read, not in a deviation log."
+    },
+    "freshness": {
+      "values": [
+        "redeploy",
+        "osr"
+      ],
+      "default": "redeploy",
+      "detect": [
+        {
+          "test": "src/app/api/revalidate/route.ts exists (the nextjs-app-router-cache-components template)",
+          "value": "osr",
+          "match": {
+            "kind": "path_exists",
+            "value": "src/app/api/revalidate/route.ts"
+          }
+        }
+      ],
+      "resolved_at": "intake — asked in discovery, because /create-prd § 10a-4b scaffolds the baseline BEFORE /architect runs. /architect's publish-freshness ADR RATIFIES it; it does not ask it again.",
+      "records": "variables.freshness",
+      "read_by": "stages.implement.scaffold (command_by — the template), /architect (the publish-freshness ADR), /provision-sitecoreai § 6b, /ship close-out § 2, /publish § 4a",
+      "redeploy": "Plain nextjs-app-router template. A later publish shows after a redeploy or the revalidate window.",
+      "osr": "nextjs-app-router-cache-components template: tagged 'use cache' reads + POST /api/revalidate, fed by an OnUpdate Experience Edge webhook. Also resolves osr_sdk_line.",
+      "extending_runs": "An EXISTING app keeps its template — detect reads the tree, and the generator never runs again. Choosing osr on an app detected as redeploy is the OSR skill's § 8 migration tranche in the task breakdown, never a re-scaffold. The same holds when /architect overturns the intake answer after the baseline exists; overturning osr → redeploy must also delete or fail-close /api/revalidate (an unset secret is an open endpoint).",
+      "why": "Declared 2026-10-02 (S5 follow-up). The template is the irreversible half of the freshness decision, and the scaffold slot hard-coded the plain template, so every OSR choice at /architect arrived after the baseline and became a migration tranche."
+    },
+    "osr_sdk_line": {
+      "values": [
+        "stable",
+        "canary"
+      ],
+      "default": null,
+      "applies_when": "variables.freshness == osr — leave unset otherwise",
+      "resolved_at": "intake, as the follow-up to the freshness question; the ADR restates the trade-off and the choice",
+      "records": "variables.osr_sdk_line, plus the exact generator version as variables.osr_cli_version",
+      "stable": "osr_cli_version = latest (2.4.0 on 2026-10-02). Item-level OSR cannot match a cached page on 2.2.0–2.4.x: on Vercel every POST is a sitewide purge that still delivers content, under local next start content stays stale.",
+      "canary": "osr_cli_version = the exact `npm view create-content-sdk-app dist-tags.canary` string at scaffold time (2.5.0-canary.20261002045244 on 2026-10-02), never the floating tag. Carries upstream #619/#620/#623: one tag per item, unrelated pages stay cached. A prerelease in production, and the request body drops tags[].",
+      "no_default_why": "Neither answer is safe to pick for the operator: stable ships a known sitewide purge, canary ships a prerelease. Asking is the only way the trade-off is seen before it is built on.",
+      "retire_when": "a stable create-content-sdk-app release carries #619/#620/#623 — then osr scaffolds @latest and this variable is deleted"
+    },
+    "osr_cli_version": {
+      "values": "free",
+      "derived_from": "osr_sdk_line — `latest` for stable, the exact canary version for canary",
+      "records": "variables.osr_cli_version",
+      "note": "Substituted into scaffold.commands.osr as {osr_cli_version}. Never asked directly."
+    },
+    "languages": {
+      "values": "free",
+      "default": {
+        "default": "en",
+        "additional": []
+      },
+      "shape": "{ default: \"<code>\", additional: [\"<regional code>\", …], parity: \"mirror\" | \"divergent\", translation: \"human\" | \"ai\" | \"mixed\", rtl: [\"<code>\", …] } — \"multi-language\" below means `additional` is non-empty",
+      "resolved_at": "intake — asked in discovery (one question); under method:clone derived from the source <html lang> + hreflang set and shown at the summary checkpoint",
+      "records": "variables.languages",
+      "read_by": "/architect (i18n ADR), /provision-sitecoreai § 7 (site language + additional environment languages), /implement (i18n skills, check-locale-drift exit hook), /author-content (language versions), /test-content (language axis), /publish (per-locale census + crawl), /doctor (W3 --lang)",
+      "default_why": "One language, en, is what the provisioning stage hard-coded until 2026-10-02 and what all six shipped apps run, so the default changes nothing. Every multi-language behaviour below fires only on a non-empty `additional`."
+    },
+    "search": {
+      "values": [
+        "none",
+        "content",
+        "site",
+        "push"
+      ],
+      "default": "none",
+      "resolved_at": "intake — asked ONLY when the spec carries a search requirement (search, facet, typeahead, autocomplete); otherwise recorded as none without asking",
+      "records": "variables.search",
+      "read_by": "/architect (search ADR), /design (search POC states), /task-breakdown (probe tranche first), /implement (search skills + check-search-wiring exit hook), /test (published-page assertion), /provision-sitecoreai (operator-attention: source + Search Configuration Manager), /ship (push key on all three Vercel targets), /publish (reindex + live probe gate)",
+      "default_why": "none adds nothing to any stage: every search wiring is conditional on a non-none value."
+    },
+    "sdk_line": {
+      "values": [
+        "stable",
+        "beta.atoms"
+      ],
+      "default": "stable",
+      "resolved_at": "intake — asked ONLY when the operator asks for marketer-composed / low-code components; otherwise recorded as stable without asking",
+      "records": "variables.sdk_line",
+      "read_by": "stages.implement.scaffold.sdk_line_override, /architect + /design + /task-breakdown + /implement (atoms skill), /implement tranche exit (check-atoms-lock), tranche_join (atoms.lock carve-out), /ship (SITECORE_EDGE_PLATFORM_HOSTNAME), /publish (MMS check)",
+      "conflicts_with": "variables.freshness == osr — measured: beta.atoms carries none of the 2.5.0 OSR fixes and the cache-components template returns HTTP 500 on every ComponentRef page. The conflict is a HARD ask at intake, never resolved by default.",
+      "canary_note": "The 2.5.0 canary is not a value here: it is variables.osr_sdk_line, whose only reason is OSR.",
+      "retire_when": "atoms reach a stable create-content-sdk-app release — then the atoms skill is rewritten against GA and this variable is reconsidered",
+      "default_why": "stable is today's behaviour; beta.atoms is a downgrade an operator must opt into knowingly."
+    }
+  },
+  "workspace": {
+    "container": "two-level",
+    "layout": "products/head-application/<project-slug>/<head-app-slug>",
+    "not": "site/",
+    "why": "One Deploy project = one CM. A head app is a sibling of cm/, never directly under products/ and never in site/ (product-workspace.md § 1b-i).",
+    "finding": "RESOLVED 2026-08-22. Core /implement now reads workspace.container from the brief and falls back to site/ only when no pack declares one. Until then this slot had NO consumer: the container table was unconditional, so every run on this platform either took the target= override or resolved the container by a path the command never described.",
+    "naming": {
+      "resolve_when": "at the discovery-summary checkpoint, once the platform is confirmed, and BEFORE git setup",
+      "why": "The folder, the git init and the spec write all have to land at the right path — resolving later means moving all three.",
+      "asks": [
+        "the Deploy project name (kept VERBATIM, spaces and all)",
+        "the head-app name"
+      ],
+      "derives": [
+        "project_slug and head_app_slug — dashed, space-free",
+        "the folder paths, shown back to the operator for confirmation"
+      ],
+      "records": [
+        "deploy_project_name",
+        "project_slug",
+        "project_root",
+        "cm_code_base",
+        "product_slug",
+        "product_root"
+      ],
+      "asks_unless_derived": "An audience pack whose `derives_instead_of_asking` names `workspace.naming.asks` SUPPRESSES these two questions and derives both names instead. Without this, `asks` and the audience derive contradict each other on the same two values — reported by a real run 2026-08-25 as a direct contradiction with no adjudicator. The `derives` and `records` below are unaffected: they describe what happens to the values once resolved, however they were resolved.",
+      "single_owner": "The deploy-project + head-app name is asked ONCE, in the discovery grill, via this pack's `hooks.discovery.questions` entry. `workspace.naming.asks` below and `/create-prd` § Workspace naming both DESCRIBE the same question — they do not add a second prompt. Three contracts naming one question with three different timings is how an operator gets asked twice and a run derives from whichever answer it saw last. Reported 2026-08-26.",
+      "required_at": "intake",
+      "required_at_why": "The editing-host name becomes `renderingHosts.<key>` in `xmcloud.build.json`, which § 10a-4b writes BEFORE the first commit and before the work-item branch is cut. `/create-prd` Validation escalates a `main` without it to a [BLOCKER], and `failure_if_skipped` says deferring deadlocks the first deploy with no workaround. So the name is needed at INTAKE, not at `go_live`.",
+      "tenant_facing": [
+        "brand_name",
+        "deploy_project_name",
+        "site_name",
+        "editing_host_name"
+      ],
+      "local": [
+        "project_slug",
+        "project_root",
+        "head_app_slug",
+        "cm_code_base",
+        "branch"
+      ]
+    }
+  },
+  "repo_setup": {
+    "seeds_baseline_on_main": true,
+    "why": "/create-prd § 10a-4b seeds a deployable baseline on main before the prd-NNN branch. A git-linked editing host builds main; a feature branch is not a deploy source.",
+    "topology": {
+      "rule": "ONE REPO PER DEPLOYABLE. The <project_slug>/ project folder is an UNTRACKED CONTAINER (an untracked container, not a git repo); each deployable inside it is its own repo so it maps 1:1 to a SitecoreAI Deploy deployable.",
+      "intake_sets_up": "only the head-app repo — that is where the spec + planning land. The cm/ repo is set up where cm/ is created (/discover-sitecoreai or /provision-sitecoreai, NEW CM only).",
+      "git_root_check": "run `git rev-parse --show-toplevel` from INSIDE the head-app folder, never the container",
+      "supersedes": "the older \"one repo at the project folder\" design",
+      "project_readme": {
+        "path": "products/head-application/<project_slug>/README.md",
+        "when": "the container is first created, or first touched by a run of this platform",
+        "contents": [
+          "the Deploy project name",
+          "the CM repo (own or external)",
+          "every head-app repo",
+          "the folder → repo → deployable mapping",
+          "the clone / recreate steps"
+        ],
+        "why": "The container itself is untracked, so this README is the ONLY durable index of the topology."
+      }
+    },
+    "deployable_baseline": {
+      "when": "first-time repo setup, BEFORE the first commit and before the work-item branch is cut",
+      "what": "scaffold + xmcloud.build.json + a values-free .env.example + .gitignore, committed and pushed to main",
+      "why": "main must be BUILDABLE from the moment the repo exists, because a git-linked editing host builds main and a feature branch is not a deploy source.",
+      "failure_if_skipped": "The first deploy deadlocks — observed as `The file xmcloud.build.json is not found` — and NEITHER workaround saves it: upload mode is rejected outright on a linked environment (\"Uploading source code is not permitted\"), and re-pointing the link at the feature branch 403s because the source-control connection is Portal-managed.",
+      "xmcloud_build_json": {
+        "target": "<head-app repo root>/xmcloud.build.json",
+        "template": ".agent/packs/platform/content-sdk/templates/xmcloud-build/editing-host.xmcloud.build.json",
+        "blueprint": ".agent/packs/platform/content-sdk/templates/xmcloud-build/README.md",
+        "how": "COPY the template and replace <EDITING_HOST_NAME>. Do not hand-write it from prose and do not restate any of its values in a command, an agent file or a runbook — the blueprint is the one source of truth and a stray literal fails __tests__/xmcloud-build-blueprint.test.mjs.",
+        "rendering_host_key": "MUST equal the editing-host name already resolved for this run — the same string /provision-sitecoreai later passes to `editinghost create -n` and binds to the site-grouping RenderingHost field (§ 7d). Resolve it now rather than guessing a key: a mismatch means the deploy cannot bind the rendering host, and the failure is invisible on the public head app while Pages shows an all-missing layout.",
+        "node_version": "24.22.1",
+        "node_version_rule": "Sitecore: 'The major version of Node.js used by hosts and starters and the one used by Content SDK must match.' Derived from the app, never picked freely — bump procedure in the blueprint § 4.",
+        "node_version_provenance": "Sitecore/xmcloud-starter-js main (renderingHosts.nextjsstarter), verified 2026-08-24; local toolchain node v24.14.0; head apps on next ^16.2.0 + @sitecore-content-sdk/nextjs ^2.3.0."
+      },
+      "splits_the_ship_pr": true,
+      "splits_the_ship_pr_why": "baseline scaffold first, project code second — /ship reads repo_setup.seeds_baseline_on_main for this, NOT a platform name"
+    }
+  },
+  "rules": [
+    "80-content-sdk-headapp.mdc",
+    "81-existing-site-discovery.mdc",
+    "82-nav-root-resolution.mdc",
+    "83-content-authoring-mcp-first.mdc",
+    "84-sitecore-multisite-scoping.mdc",
+    "85-preview-live-divergence.mdc",
+    "86-component-authorability.mdc"
+  ],
+  "rules_reason": "The full platform-bound set (2026-08-23). This key was DECORATIVE until then — nothing read it, and the exporter walked .agent/rules/ wholesale, so the 'core only, generic pipeline' export shipped Content SDK navigation law, Edge divergence law and component-authorability law to a composition that has no Sitecore. It also listed only four of the seven. 81/83/85 were added on evidence, not symmetry: 81 is glob-scoped to sitecore.json + xmcloud.build.json, 83 governs the agent's content-authoring CHANNEL during a content phase, and 85 is about Edge preview-vs-live. Marketplace claims none of the seven for reasons recorded in its own rules_reason. A rule NO pack claims is core and ships everywhere — default-in, because the failure mode of default-out is silently dropping law, which is strictly worse than shipping some that is inert.",
+  "stages": {
+    "implement": {
+      "skills": [
+        {
+          "skill": "setup-scaffold",
+          "load": "always",
+          "anchor": "before:scaffold",
+          "why": "Carries the failure policy and forbidden shortcuts (e.g. cloning SitecoreAI Starter as a silent substitute). Invoke even when § 4c-3 already names the command."
+        },
+        {
+          "skill": "content-sdk-create-component",
+          "load": "mandatory_when",
+          "when": "the tranche creates or modifies ANY Sitecore schema — rendering, datasource / element / folder / parameters template",
+          "why": "Clone OOTB then customize via Authoring GraphQL. Carries the template folder layout (Project/<Brand>/<Site>/ + Folders/ + Rendering Parameters/) and the copyItem recipe whose three parent paths ARE the layout. Do not place templates by judgement.",
+          "evidence": "Discretionary until 2026-08-12; three of five brands drifted flat while every one of them passed the gate."
+        },
+        {
+          "skill": "content-sdk-icon-chooser",
+          "load": "mandatory_when",
+          "when": "the tranche creates ANY Sitecore item that carries an __Icon — rendering, datasource / element / folder / parameters template and each __Standard Values",
+          "why": "Rule 80 § 0 item 9 requires a meaningful __Icon on every item a component owns. The skill tokenizes the component name, keyword-matches a semantic category, and PROBES that the icon resolves before writing — SitecoreAI SaaS ships a reduced set, so an unprobed name renders blank.",
+          "evidence": "Cited by rule 80 § 0 item 9 and by content-sdk-create-component, but listed by NO stage until 2026-08-28 — so nothing loaded it. Measured on a prior run: 6 of 7 renderings carried the SAME icon (SXA/16x16/promo.png) and the site template carried none. 'One icon per component' means consistent across that component's OWN items, not one icon for every component — read the other way it makes the Pages palette less readable, which is the opposite of the rule's purpose."
+        },
+        {
+          "skill": "content-sdk-list-component",
+          "load": "mandatory_when",
+          "when": "a rendering displays a REPEATING set of rows the author should be able to add to (nav links, cards, stats, entries)",
+          "why": "A list component is not a single datasource with a Multilist — it is container + element templates, insert options via the container's __Standard Values.__Masters, and a BRANCH as the rendering's Datasource Template. __Masters is what lets an author ADD A ROW in Pages; without it the author can only re-point an existing field.",
+          "evidence": "Existed only as the memory note (read-confirmed against OOTB Link List, 2026-06-23), so it surfaced as background context and never loaded at the stage that needed it.",
+          "evidence_measured": "A prior run, 2026-08-28, and the shape is subtler than 'no list components'. The three legs fail INDEPENDENTLY and all four repeating-row renderings (Header/NavLink, ServiceTrio/ServiceItem, SelectedWork/WorkEntry, StatBand/StatItem) came out the same way: (1) __Masters on the container __Standard Values — CORRECT on all four, so an author genuinely can add a child; (2) Datasource Template — the BARE template, not a branch, so a new datasource ships empty; (3) delivery — a Multilist on the container, so THE ADDED CHILD DOES NOT RENDER. Legs 1 and 2 are schema; leg 3 is what makes the component feel broken. The author adds a row, sees nothing, then has to find the Multilist field and add the reference — the two-operations-in-two-places cost, arrived at with the insert options already working. Check all three legs; the first one passing is not evidence for the others."
+        },
+        {
+          "skill": "content-sdk-navigation-component",
+          "load": "mandatory_when",
+          "when": "the tranche builds ANY navigation surface — site nav, section jump-bar, footer link list, breadcrumb",
+          "why": "The real decision is the DATA SOURCE, not the markup: derived navigation walks the content tree (rootPath + bounded depth + filter); authored navigation is a curated list an editor writes, including in-page anchors on a one-pager. They share only a presentation layer, so the default is TWO renderings. Carries the three silent-failure traps: Edge query-depth degradation, rootPath being the site node rather than Home, and a fail-open href turning a dead link into a 200.",
+          "evidence": "Referenced by NOTHING under .agent/ until 2026-08-28 — the third skill found in a single review that exists, is correct, and no stage loads (with content-sdk-icon-chooser and the list-component pattern). One site's Header is precisely its authored / in-page-anchor case."
+        },
+        {
+          "skill": "content-sdk-website-build-flow",
+          "load": "when_relevant",
+          "when": "once early on a greenfield Content SDK tranche",
+          "why": "Two-track model, build-directly vs static reference app, the port transform (plain props → SDK fields), and the content-model direction (NEW vs EXISTING). Domain craft only — NOT pipeline stage order.",
+          "not": "an umbrella — it does not own pipeline stage order"
+        },
+        {
+          "skill": "content-sdk-resolver-patterns",
+          "load": "when_relevant",
+          "topic": "payload shape",
+          "why": "Read the rendering YAML, identify which of the 5 patterns it uses, then write TypeScript types matching the VERIFIED payload shape. Empty-state field shapes (Image `{value:{}}`, Link `{value:{href:\"\"}}`) require defensive optional-chaining — `fields.X?.value?.src`, NEVER `fields.X.value.src`."
+        },
+        {
+          "skill": "content-sdk-component-naming-traps",
+          "load": "when_relevant",
+          "topic": "component map",
+          "why": "Only the Sitecore-registered `.tsx` (and its `.<Variant>.tsx` siblings) belong in `src/components/<Component>/`. Types, queries, sub-components, server actions and route handlers live in `src/lib/<feature>/` or `src/app/api/<feature>/`. After every change run `npm run sitecore-tools:generate-map` and verify the component map registers ONLY Sitecore renderings — no infrastructure."
+        },
+        {
+          "skill": "content-sdk-variants-vs-siblings",
+          "load": "when_relevant",
+          "topic": "variants",
+          "why": "FieldNames resolution is CASE-SENSITIVE, and Headless Variant items must exist in the CMS for the dropdown to appear at all. An empty or missing FieldNames falls back through `component.default` → `component.Default` → `component`."
+        },
+        {
+          "skill": "content-sdk-layout-composition",
+          "load": "mandatory_when",
+          "when": "a task adds a structure or slot component, a nested placeholder, or a component that must honour grid params",
+          "why": "Edge delivers container-{*} / column-N-{*} with the id in DynamicPlaceholderId, always all eight slots, and grid classes as runtime strings a Tailwind build never generates. Copy the hardened assets; every failure here renders silently. Keep src/lib/layout/component-fit.ts (every rendering: chrome / section / wide / flexible) and build a component that may sit in columns container-aware (its own width, not the viewport)."
+        },
+        {
+          "skill": "content-sdk-debug-layout-probe",
+          "load": "mandatory_when",
+          "topic": "diagnosis",
+          "when": "the verification step on EVERY component task",
+          "why": "Hit `/api/layout-debug?path=<page>` to confirm the rendered payload matches the implemented TypeScript types."
+        },
+        {
+          "skill": "content-sdk-app-router-theme-hydration-pattern",
+          "load": "when_relevant",
+          "topic": "theming"
+        },
+        {
+          "skill": "content-sdk-{router}-router-component-scaffold",
+          "load": "when_relevant",
+          "topic": "new component"
+        },
+        {
+          "skill": "content-sdk-{router}-router-component-registration",
+          "load": "when_relevant",
+          "topic": "component map"
+        },
+        {
+          "skill": "content-sdk-{router}-router-component-variants",
+          "load": "when_relevant",
+          "topic": "variants"
+        },
+        {
+          "skill": "content-sdk-{router}-router-component-data-strategy",
+          "load": "when_relevant",
+          "topic": "component data"
+        },
+        {
+          "skill": "content-sdk-field-usage-image-link-text",
+          "load": "when_relevant",
+          "topic": "field rendering",
+          "router_generic": true
+        },
+        {
+          "skill": "content-sdk-{router}-router-graphql-data-fetching",
+          "load": "when_relevant",
+          "topic": "data fetching"
+        },
+        {
+          "skill": "content-sdk-{router}-router-route-configuration",
+          "load": "when_relevant",
+          "topic": "routing"
+        },
+        {
+          "skill": "content-sdk-{router}-router-multisite-management",
+          "load": "when_relevant",
+          "topic": "routing"
+        },
+        {
+          "skill": "content-sdk-{router}-router-sitemap-robots",
+          "load": "when_relevant",
+          "topic": "routing"
+        },
+        {
+          "skill": "content-sdk-{router}-router-editing-safe-rendering",
+          "load": "when_relevant",
+          "topic": "editor / preview safety"
+        },
+        {
+          "skill": "content-sdk-{router}-router-dictionary-and-i18n",
+          "load": "mandatory_when",
+          "when": "variables.languages has additional locales, or the tranche touches routing.ts, the dictionary, <html lang> or locale links",
+          "why": "v0.5.0: locales feed LocaleProxy (path-only, case-sensitive) and SSG; messages are site-namespaced; Edge returns the KEY for an untranslated phrase (value === key is the only signal, `t() || default` is dead code); a missing language version is a 404; <html lang> keeps SSG only from src/app/[site]/[locale]/layout.tsx; the editing render takes the locale from the route, not sc_lang."
+        },
+        {
+          "skill": "content-sdk-site-setup-and-env",
+          "load": "when_relevant",
+          "topic": "site / env config",
+          "router_generic": true
+        },
+        {
+          "skill": "content-sdk-app-router-route-handler-vs-server-action",
+          "load": "mandatory_when",
+          "when": "any client-triggered server data FETCH",
+          "why": "Use a Route Handler under src/app/api/<feature>/route.ts. NEVER a Server Action for reads — its automatic router.refresh() wipes client state and presents as endless loading flicker. Server Actions are for genuine mutations only.",
+          "evidence": "Finding B — this skill reached the model ONLY through 08-developer.md; no command named it."
+        },
+        {
+          "skill": "content-sdk-tracking-consent",
+          "load": "mandatory_when",
+          "when": "the head app tracks visitors — true for every stock Content SDK head app (Bootstrap + CdpPageView + PersonalizeProxy)",
+          "why": "Consent is a standard acceptance criterion: no consent = no tracking cookies, no edge-platform beacons, no proxy decision; grant starts tracking without a reload; withdrawal wipes sc_cid. The gate sits in four places and needs an authorable banner component.",
+          "evidence": "S1 capability-gap track 2026-10-01: all six shipped live sites initialised tracking without consent; the gate was proven on a throwaway app (states A-D) and on a personalized route (P7)."
+        },
+        {
+          "skill": "content-sdk-analytics-events",
+          "load": "when_relevant",
+          "topic": "analytics events",
+          "why": "Custom / form / identity / server-side events: client by default; server events use the carrier-response pattern and are NOT concurrency-safe (49/50 misattributed under jitter). Headless UAs count as bots."
+        },
+        {
+          "skill": "content-sdk-personalization",
+          "load": "when_relevant",
+          "topic": "personalization",
+          "why": "PersonalizeProxy is ON in every production build and costs an Edge lookup per request: set personalize.enabled:false when the site has no personalization; scope must equal PAGES_PERSONALIZE_SCOPE; forward geo on Vercel or geo audiences match the hosting region."
+        },
+        {
+          "skill": "sitecoreai-personalization",
+          "load": "when_relevant",
+          "topic": "personalization setup",
+          "why": "Creating page variants / audiences / A/B tests on the tenant: read before write (create appends), 32-hex template variant id, publish page + copied datasource, verify all seven layers — a rendered page alone proves nothing."
+        },
+        {
+          "skill": "content-sdk-app-router-cache-components-and-osr",
+          "load": "mandatory_when",
+          "when": "the app uses Cache Components — scaffolded from nextjs-app-router-cache-components, `cacheComponents: true` in next.config, or the tranche touches src/lib/cache/ or src/app/api/revalidate/",
+          "why": "'use cache' must be the first statement, every helper must tag completely, preview reads stay uncached, and the revalidate route fails closed on an unset SITECORE_REVALIDATE_SECRET (unset = an open endpoint on 2.4.0 and 2.5.0). The SDK version floor decides whether item-level OSR works at all.",
+          "evidence": "S5 capability-gap track 2026-10-02."
+        },
+        {
+          "skill": "sitecoreai-localization",
+          "load": "when_relevant",
+          "topic": "CM languages",
+          "why": "Environment language, per-site enablement, language versions (addItemVersion creates an EMPTY version), Dictionary entries per language, fallback (env patch vs host flags), per-locale publish and the language census."
+        },
+        {
+          "skill": "content-sdk-search",
+          "load": "mandatory_when",
+          "when": "variables.search != none",
+          "why": "Search hooks are client-only (a Server Component fails late and cryptically), an unmemoized facet/sort object loops (6,568 requests in 5 s, measured), no context id leaves the hook idle with no error, facets go by display name, SearchService is not re-exported by nextjs. The starter port carries four defects to fix."
+        },
+        {
+          "skill": "sitecoreai-search-sources",
+          "load": "when_relevant",
+          "topic": "search index",
+          "why": "Source types, field flags (no reference fields), a manual reindex wipes pushed documents, the config read API needs a scope no automation client carries, source setup is UI-only."
+        },
+        {
+          "skill": "content-sdk-app-router-atoms",
+          "load": "mandatory_when",
+          "when": "variables.sdk_line == beta.atoms",
+          "why": "Atoms live in src/atoms/ and atomsConfig, never the component map; four measured null-render defects (application/json MMS body, FieldNames vs fieldNames, MMS host ignores edgeUrl, cache-components 500); the lock validate exits 0 unless forced; compileCssForDocumentAction is a public Server Action."
+        },
+        {
+          "skill": "sitecoreai-serialization",
+          "load": "mandatory_when",
+          "when": "the tranche writes CM items or touches a *.module.json — before the tranche-exit ser pull",
+          "why": "Module design (collection grain, folder per module, include scope, push policy, full record vs shell) decides whether a pull captures the tranche and whether a later push deletes or strands items. sitecoreai-cli-cloud-workflow keeps the pull/push procedure."
+        },
+        {
+          "skill": "content-sdk-troubleshooting",
+          "load": "mandatory_when",
+          "when": "a tranche-exit gate, build or visual compare fails — before the first fix",
+          "why": "Isolate the failing layer and read its logs before touching code; the symptom index catches known traps a guessed fix would paper over. It routes on to content-sdk-debug-layout-probe and the editing troubleshooter."
+        }
+      ],
+      "scaffold": {
+        "command_by": "variables.freshness",
+        "commands": {
+          "redeploy": "npx --yes create-content-sdk-app@latest --yes --template nextjs-app-router --destination <products/head-application/<project-slug>/<head-app-slug>>",
+          "osr": "npx --yes create-content-sdk-app@{osr_cli_version} --yes --template nextjs-app-router-cache-components --destination <products/head-application/<project-slug>/<head-app-slug>>"
+        },
+        "command_source": "setup-content-sdk skill, STEP 0 — verbatim, never paraphrased (rule 50-scaffold). {osr_cli_version} is the recorded variables.osr_cli_version; an unresolved placeholder is a STOP, not a guess.",
+        "skip_when": "repo_setup.seeds_baseline_on_main AND the baseline exists — /create-prd § 10a-4b seeded it and /provision-sitecoreai verified it. Assert, do not re-run the generator. An EXISTING app keeps its template whatever variables.freshness says (variables.freshness.extending_runs).",
+        "skip_assertions": [
+          "src/app/ exists",
+          "src/pages/ does NOT exist",
+          "xmcloud.build.json exists"
+        ],
+        "post_assertions": [
+          "src/app/ exists and src/pages/ does not — HARD STOP and report on any other outcome; never hand-edit next.config.* or move files to convert routers",
+          "osr only: src/app/api/revalidate/route.ts exists and next.config.* sets `cacheComponents: true` — HARD STOP otherwise (the generator produced the plain template)"
+        ],
+        "on_failure": "HARD STOP — surface the exact command, the exact stdout/stderr, and what the operator can do. Never hand-write package.json / tsconfig.json / next.config.* from training data.",
+        "post_scaffold": "copy .env.example (or .env.remote.example) to .env.local and fill Edge context values",
+        "sdk_line_override": {
+          "applies_when": "variables.sdk_line == beta.atoms",
+          "command": "npx --yes create-content-sdk-app@beta.atoms --yes --template nextjs-app-router --destination <products/head-application/<project-slug>/<head-app-slug>>",
+          "post_assertions": [
+            "src/atoms/index.tsx exists — HARD STOP otherwise (the stamp moved or the tag no longer carries atoms)",
+            "every @sitecore-content-sdk/* dependency is pinned to the SAME exact beta stamp (no ^ range)"
+          ],
+          "forbids": "nextjs-app-router-cache-components under beta.atoms (HTTP 500 on every ComponentRef page, measured) — and therefore variables.freshness == osr",
+          "why": "Atoms ship only under the beta.atoms dist-tag, inside the plain nextjs-app-router template. Rule 50 still applies: run it literally, re-check `npm view @sitecore-content-sdk/nextjs dist-tags` first."
+        }
+      },
+      "preflight_credentials": {
+        "fires": "before the first LIVE CM write (rule 80 § 0 live schema creation, or any Marketer MCP call)",
+        "gate_class": "go_live boundary — runs regardless of the gate set; a blocked credential is a genuine blocker, not a review stop",
+        "checks": [
+          {
+            "name": "Marketer MCP token",
+            "test": "a cheap read, e.g. get_site_information",
+            "remedy": "operator re-runs /mcp"
+          },
+          {
+            "name": "Sitecore CLI deploy token",
+            "test": "dotnet sitecore cloud environment list",
+            "when": "the tranche will ser pull",
+            "remedy": "dotnet sitecore cloud login (device flow — surface the code)"
+          },
+          {
+            "name": "CM-client token",
+            "test": "mints for raw-AGQL writes",
+            "remedy": "use the run's known-good CM client and FLAG the dead one for rotation — never silently proceed on a mystery credential"
+          }
+        ],
+        "all_in_one_pass": true,
+        "why": "Runs have stalled separately on the Marketer MCP token, the Sitecore CLI deploy token, and a dead-401 deploy client. Do not discover an expired token mid-tranche.",
+        "applies_to": [
+          "implement",
+          "discover-components",
+          "author-content",
+          "test-content",
+          "publish"
+        ],
+        "applies_to_why": "this check is DECLARED under stages.implement but /implement often makes no live CM write at all, while the four content-phase stages make nothing BUT live writes — so the check sat on the one stage that did not need it and was absent from every stage that did. The declaration stays here (it is the single source of the checks[] list; a second copy would drift), and each stage above cites it by path. A credential is verified at FIRST USE, not once at the start of the build: MCP tokens expire inside a long run (~25 minutes lost mid-stage), so re-run this pass whenever a stage resumes after a gap."
+      },
+      "definition_of_done": {
+        "overrides": "core.implement.component_definition_of_done",
+        "core_default": "the module + its types + wiring + tests",
+        "value": "the LIVE Sitecore rendering schema (JSON Rendering item + datasource template(s) + resolver-or-ComponentQuery + parameters/placeholder settings + Available Renderings entry, created via Authoring GraphQL per rule 80 § 0) AND the React component + SDK field components, component-map registration, variants, and its tests",
+        "why": "A component is not done as code alone: without its rendering item in Sitecore, add_component_on_page has nothing to place and assembly finds an empty Renderings/Project/<Brand>.",
+        "constraints": [
+          "schema is created LIVE (rule 80 § 0 / rule 83 schema path — content stays MCP-first)",
+          "derived from the app's OWN FieldNames (rule 40), never copied from a sibling"
+        ]
+      },
+      "constraints": [
+        {
+          "id": "preview-first",
+          "text": "Do NOT publish during implementation. The head app reads PREVIEW Edge; live content-model authoring in the CM during the port loop is previewed, not published. Publishing to LIVE Edge is deferred to /publish.",
+          "corollary": "Do not add a publish-the-subtree step to /implement — the Edge resource the build prerenders against was created at /provision-sitecoreai (empty content is fine).",
+          "source": "glossary § Preview-first delivery"
+        },
+        {
+          "id": "build-phase-surface",
+          "text": "Build-phase verification of the running app is on localhost (npm run dev, preview context). Do NOT stand up a Vercel preview to verify build-phase work. ONE scoped exception, owned by /test, not /implement: a Cache Components app (`cacheComponents: true` in next.config, or variables.freshness == osr) gets the served-HTML proof on its branch's Vercel Preview (test axis `served-html-preview-proof`) before anything reaches production.",
+          "why": "The editing host builds from main and will not carry this branch's components until the /ship merge; Vercel is the LIVE surface reserved for /publish. The exception exists because local `next start` does not run Vercel's PPR resume invocation: on 2026-10-15 every page of a migrated app was served cut at ~21 KB in production while every local gate was green."
+        },
+        {
+          "id": "nav-root-is-content-managed",
+          "when": "the tranche builds or changes NAVIGATION — nav root, nav depth, breadcrumb root, or any site-tree walk",
+          "text": "The nav root and depth are CONTENT-MANAGED: authored on the rendering, with a coded fallback. NEVER resolve the nav root from an env var (NEXT_PUBLIC_NAV_ROOT_PATH or any app-level equivalent), and NEVER string-construct a site-Home guess. Depth is the namespaced NavDepth parameter.",
+          "why": "An env var lives only in the gitignored .env.local and does NOT travel with a git deploy, so the deployed editing host and Vercel render an EMPTY nav while localhost looks perfect. This shipped as a real defect (the PRD-000 [BLOCKER]).",
+          "source": "rule 82-nav-root-resolution",
+          "finding": "rule 82 had ZERO of the three activation channels (no prose citation, no depends_on, one CLAUDE.md parenthetical): 36 lines of navigation law that no agent had any path to. Every other rule had at least one. This constraint is that missing citation, placed where the work actually happens rather than folded into rule 80."
+        },
+        {
+          "id": "ser-endpoint-and-scope",
+          "text": "Every `dotnet sitecore ser` op on a shared-CM repo needs BOTH `-n <endpoint>` AND `-i \"Project.<Brand>\"`. They guard different failures and neither implies the other: `-i` keeps you off the sibling brands; `-n` keeps you off the wrong ESTATE. The CLI default is NOT safe — `cm/.sitecore/user.json` is gitignored, so its `defaultEndpoint` is whatever the last `cloud login` wrote and is invisible in a diff.",
+          "corollary": "Measured 2026-09-26: `defaultEndpoint: \"default\"` resolved to another org's CM than the one the run targeted. A bare `ser pull` applied 26 changes from the wrong tenant and reported \"Discovered 26 changes … Changes have been applied\". Nothing failed; it was caught only because ~150 items just created were ABSENT from the result. Recovery: `git checkout` the serialized tree, delete any untracked folder the pull created, re-pull with `-n`, and verify against a count predicted in advance.",
+          "source": "a prior run, 2026-09-26: the CLI default endpoint"
+        },
+        {
+          "id": "sitecore-cli-local-tool",
+          "text": "Invoke the Sitecore CLI as the project-LOCAL tool — `dotnet tool run sitecore …` from the CM folder, which can only resolve the local tool manifest. Wherever a contract writes `dotnet sitecore …` for brevity, run it this way. A global `sitecore.cli` install shadows the pinned local tool and its plugins.",
+          "corollary": "Measured 2026-09-29 on a clone run: a global sitecore.cli 5.2.109 could not load the Serialization/Publishing plugins, so `ser pull` failed and cm/ drifted from the tenant on one template until the run switched to `dotnet tool run sitecore`. A stray plugin bump in cm/sitecore.json made from the global tool had to be reverted too."
+        },
+        {
+          "id": "beta-atoms-compile-action",
+          "applies_when": "variables.sdk_line == beta.atoms",
+          "text": "Guard compileCssForDocumentAction before the app is reachable: gate it on draft mode or the editing secret, or rate-limit it. Its id ships in the client bundle and an anonymous POST returns compiled CSS (measured) — an uncapped compile per new class set."
+        }
+      ],
+      "generated_artifacts": {
+        "paths": [
+          ".sitecore/component-map.ts",
+          ".sitecore/component-map.client.ts",
+          ".sitecore/import-map.server.ts",
+          ".sitecore/sites.json"
+        ],
+        "generator": "sitecore-tools project component generate-map + the scaffold's sites/import-map generation",
+        "policy": "regenerate-and-accept — deterministic build output the app imports, NOT drift",
+        "when": "before the build gate (§ 8b), against the COMPLETE current component set",
+        "never": "inspect-and-revert — the save/build owns them; a newly added component SHOULD change component-map.ts",
+        "git_status_exempt": true,
+        "worktree_rule": "never run generate-map inside a worktree — it is integration-scoped and a worktree map is partial by construction"
+      },
+      "additions": {
+        "git_status_exempt": [
+          ".sitecore/component-map.ts",
+          ".sitecore/component-map.client.ts",
+          ".sitecore/import-map.server.ts",
+          ".sitecore/sites.json"
+        ],
+        "escalation_notes": [
+          "The Components Preview tree is QA's, not the Developer's (2026-07-29) — QA (07) composes it once at /test as its fixture setup (rule 80 § 0b). The Developer builds the component + its live rendering schema and does NOT write the tree."
+        ]
+      },
+      "hooks": {
+        "tranche_exit": [
+          {
+            "step": "ser pull the rendering schema back into cm/",
+            "command": "dotnet sitecore ser pull",
+            "scope": "the project's items.path",
+            "commit_with": "the component code — code + schema land in the same crash-checkpoint",
+            "cadence": "per component tranche, NOT one summarized end-of-run pull",
+            "module_must_include": [
+              "/sitecore/layout/Renderings/Project/<Brand>",
+              "/sitecore/templates/Project/<Brand>"
+            ],
+            "why": "The schema is versioned, not live-only — a tenant reset would otherwise lose it.",
+            "source": "rule 80 § 0"
+          },
+          {
+            "step": "wipe .next after ANY CM content or schema write, before believing a build-time gate",
+            "command": "rm -rf <head-app>/.next",
+            "order": "immediately after the ser pull, BEFORE npm run build and before any gate that reads build output",
+            "blocking": true,
+            "why": "Next persists its fetch cache across incremental builds BY DESIGN, so a build made after a CM write can serve the PREVIOUS tenant state while exiting 0. The live dev path resolves correctly, which is what makes it convincing.",
+            "evidence": "Measured twice. A prior run, 2026-08-28 (N-01): .next/cache/fetch-cache survives npm run build, so a local build serves stale content indefinitely. Another, 2026-09-08: after add_component_on_page, the build reported success and assert:css-tokens + assert:canvas-mount both passed while the prerendered HTML contained ZERO occurrences of the new component and Playwright reported its selector as never-captured.",
+            "on_skip": "every build-time gate in the tranche is measuring the previous tenant state; a green result proves nothing about what was just authored"
+          },
+          {
+            "step": "schema audit — the tranche's exit gate, not a suggestion",
+            "command": "node .agent/scripts/audit-sitecore-schema.mjs --cm <product>/cm --brand <Brand>",
+            "order": "after the ser pull, before the commit",
+            "on_exit_1": "defects — fix them in THIS tranche rather than carrying them forward; every axis it scores is invisible to the build, the tests and Edge",
+            "waiver": "<product>/cm/.schema-audit-ignore.json with its own stated reason — never widen one to clear a finding you have not understood",
+            "blocking": true,
+            "source": "rule 80 § 0a"
+          },
+          {
+            "step": "component authorability audit",
+            "command": "node .agent/scripts/audit-component-authorability.mjs --app <head-app>",
+            "order": "before the commit, alongside the schema and comment-economy audits",
+            "waiver": "<app>/.authorability-ignore.json under components, each with its own mandatory reason",
+            "blocking": true,
+            "source": "rule 86",
+            "finding": "core /implement never names this audit, though root CLAUDE.md and rule 86 both require it at every delivery-loop exit.",
+            "warn_axes": "literal-microcopy (a hard-coded visitor-facing string: move it to the Sitecore Dictionary with the literal kept as the value===key default, or waive it per string) and atom-plain-string (a beta.atoms catalog prop carrying copy as z.string()) WARN and never block. Measured 2026-10-02: 0 false positives after review on the six shipped apps."
+          },
+          {
+            "step": "head-app shape audit — two bands, and a warn is a QUESTION",
+            "command": "node .agent/scripts/audit-headapp-shape.mjs --app <head-app>",
+            "order": "before the commit, alongside the schema, authorability and comment-economy audits",
+            "on_exit_1": "a no-go finding: a component no one should ship at that size, a `__tests__` folder under src/components registering as a rendering, or a sub-component silently becoming its own rendering. Fix it in THIS tranche rather than carrying it forward.",
+            "warn_is_not_a_failure": "A warn asks whether the component can be simplified or split. \"No, it is genuinely one thing\" is a CORRECT answer — record it in the waiver with its reasoning rather than settling it in conversation, because the reasoning is the only part a later reader can review. Never split a component solely to clear a warn.",
+            "waiver": "<app>/.headapp-shape-ignore.json under components / routes / axes, each with its own mandatory reason",
+            "blocking": true,
+            "bands_are_measured": "warn >= 250 LOC sits just above the estate p90 and fires on ~10% of components; no-go >= 450 sits between p95 and the max and fires on ~3%. Derived from 134 components across seven shipped apps. Do NOT round them to nicer numbers — a draft at 150/300 put five of seven apps in the hard band, which is the cry-wolf failure the authorability audit already recorded."
+          },
+          {
+            "step": "tracking-consent wiring audit — the static half of the consent standard",
+            "command": "node .agent/scripts/audit-tracking-consent.mjs --app <head-app>",
+            "order": "before the commit, alongside the authorability and shape audits",
+            "on_exit_1": "the app tracks (initContentSdk, a Sitecore events call, or PersonalizeProxy) but the gate is missing at a named point: bootstrap (init not gated on analytics consent, or not re-run on grant), events (pageView / event / identity / form ungated), personalize-proxy (skip does not read the consent cookie), withdrawal (nothing called deletes sc_cid + sc_cid_personalize), banner (no consent banner component, or absent from the component map). Fix it in THIS tranche with the content-sdk-tracking-consent templates.",
+            "waiver": "<app>/.consent-audit-ignore.json under points, keyed by point or point:<app-relative file>, each with its own mandatory reason",
+            "blocking": true,
+            "static_only": "Green means WIRED, never proven. The proof is the skill's real-UA acceptance spec at /test.",
+            "evidence": "2026-10-01: all six apps shipped by then FAIL all five points (operator-accepted risk for those six); the skill templates PASS; each point removed in turn fails naming that point (__tests__/audit-tracking-consent.test.mjs)."
+          },
+          {
+            "step": "live base-chain check — the half the disk audit cannot see",
+            "command": "node .agent/scripts/check-template-base-chain.mjs --brand <Brand> --cm <cm_code_base> --org <org> --tenant <tenant>",
+            "order": "in the same step as the schema audit — after the ser pull, before the commit",
+            "mandatory_when": "the tranche created or modified project templates (the same predicate as the schema audit)",
+            "on_exit_1": "at least one __Base template resolves to ZERO bases — the item has silently lost every inherited field. Rewrite the field PIPE-delimited over AGQL; a ser push of the same on-disk state also repairs it, because SCS re-joins on push.",
+            "blocking": true,
+            "source": "rule 80 § 0a",
+            "why": "`__Base template` is pipe-delimited live and the template engine splits only on `|`, but SCS serializes correct and broken values to byte-identical YAML — so audit-sitecore-schema.mjs is STRUCTURALLY incapable of seeing this, and its lenient parser must stay lenient. The defect is introduced by raw-AGQL writes with the wrong separator, which is what a live-schema tranche does. Measured 2026-08-28: one site's OpeningBanner resolved 0 bases, another's Hero Media Band resolved 18, from identical YAML.",
+            "finding": "The script existed from 2026-08-28 and NOTHING called it — cited only in a comment inside audit-sitecore-schema.mjs. A gate with no caller is rule 88's exact shape, fourth instance. Wired 2026-08-31."
+          },
+          {
+            "step": "POC-vs-built visual compare — the tranche that owns a visual layer produces a side-by-side and a stated verdict",
+            "command": "capture the tranche's own surfaces at the POC's capture geometry and write them beside the corresponding POC frames",
+            "applies_when": "a POC clickdummy was selected at /design AND this tranche implements or changes anything it depicts",
+            "order": "after the build-reading gates, before the commit",
+            "blocking": true,
+            "artifact": "<product>/project-planning/captures/visual-compare-<tranche>/ — the built frame, the POC frame, and a one-line verdict per surface",
+            "verdict_must_be_stated": "'matches' / 'differs, and here is why that is acceptable' / 'differs and is wrong'. An unstated verdict is a fail — the artifact exists to be LOOKED at, and a directory of images nobody judged is the defect this step exists for.",
+            "why": "Tier A can be VOID, Tier B is geometry and computed style, and a canvas/scene tier is typically advisory. When all three hold at once there is NO gate that can fail on 'the thing looks wrong', and structural green plus visual zero is a stable, self-consistent state.",
+            "evidence": "A prior run, 2026-09-10: Tier C measured the hero canvas at light p10 0.013 against the POC's 0.584 - a 45x divergence in the darkest decile, i.e. solid mass where the reference had a field of points - reported within_tolerance:false in BOTH themes, was advisory, and was carried as 'a prompt to look' through eight further tranches, ship, the content phase and publish. The operator saw it first, live.",
+            "note": "This is the mechanical half. It does not replace the `build` gate's human look; it makes that look possible without one."
+          },
+          {
+            "step": "layout wiring audit",
+            "applies_when": "src/components holds a Container, Column/Row Splitter or a slot component (an AppPlaceholder named from DynamicPlaceholderId)",
+            "command": "node .claude/skills/content-sdk-layout-composition/scripts/check-layout-wiring.mjs --app <head-app>",
+            "order": "before the commit, alongside the authorability audit",
+            "blocking": true,
+            "on_exit_1": "a FAIL (no grid CSS, a fixed structure placeholder name, a bare Placeholder, an unguarded params.styles) blocks; fix it in THIS tranche. A WARN (a component ignoring its grid params, no empty-placeholder CSS, a partial structure set) is answered in the tranche notes."
+          },
+          {
+            "step": "search wiring audit + live probe",
+            "applies_when": "variables.search != none",
+            "command": "node .claude/skills/content-sdk-search/scripts/check-search-wiring.mjs --app <head-app>, then node .claude/skills/content-sdk-search/scripts/probe-search.mjs against the PREVIEW context id",
+            "order": "before the commit, alongside the authorability audit",
+            "blocking": true,
+            "on_exit_1": "a FAIL from check-search-wiring (unmemoized facet/sort, unencoded query, ungated search event, …) blocks; a WARN is answered in the tranche notes. A probe answering `no search index found` means the source does not exist on this environment yet — an operator-attention item, not a code fix."
+          },
+          {
+            "step": "locale drift check",
+            "applies_when": "variables.languages has additional locales",
+            "command": "node .claude/skills/content-sdk-app-router-dictionary-and-i18n/scripts/check-locale-drift.mjs --app <head-app> --site <site> --context-id-env <PREVIEW context env var>",
+            "order": "before the commit",
+            "blocking": true,
+            "on_exit_1": "routing.ts locales, sites, dictionary namespacing or the <html lang> root layout disagree; fix in THIS tranche. The multi-locale root layout (src/app/[site]/[locale]/layout.tsx owning <html lang>) is part of the first i18n tranche."
+          },
+          {
+            "step": "atoms lock gate + MMS probe",
+            "applies_when": "variables.sdk_line == beta.atoms",
+            "command": "node .claude/skills/content-sdk-app-router-atoms/scripts/check-atoms-lock.mjs --app <head-app> --fail-on-hash-blind; then probe-mms.mjs against the preview route of a test page carrying a ComponentRef rendering",
+            "order": "before the commit",
+            "blocking": true,
+            "why": "`sitecore-tools project atoms validate` exits 0 on every lock issue unless breakOnError is forced, and the hash cannot see Zod checks, .meta() or .describe(); without the script the gate cannot fail."
+          }
+        ],
+        "integration_assertions": [
+          {
+            "id": "map-key-match",
+            "assert": "every project rendering's componentName appears as a key in .sitecore/component-map.ts (or the client map)",
+            "fails": "green — lint passes, build passes, tests pass, and the component renders blank with no error",
+            "symptom": "Edge returns the rendering and React cannot resolve it — the blank-section class",
+            "diagnose_first": true
+          },
+          {
+            "id": "server-client-split",
+            "assert": "every component annotated `export const componentType = 'client'` lands in .sitecore/component-map.client.ts and not the server map (and vice versa)",
+            "fails": "green — generate-map overwrites both maps every build, so a wrong side fails only at runtime, sometimes only inside the editor"
+          }
+        ],
+        "tranche_join": [
+          {
+            "id": "no-tranche-touched-maps",
+            "assert": "no tranche diff touches .sitecore/* — assert BEFORE merging",
+            "why": "a worktree map is partial by construction"
+          },
+          {
+            "step": "regenerate the .sitecore maps ONCE over the complete component set",
+            "after": "merge"
+          },
+          {
+            "step": "apply deferred shared-tenant registration writes SERIALLY",
+            "why": "Available Renderings, Page/Partial Designs and placeholder settings are shared mutable live-tenant state"
+          },
+          {
+            "id": "atoms-lock-serial",
+            "applies_when": "variables.sdk_line == beta.atoms",
+            "assert": "`.sitecore/atoms.lock.json` is the one `.sitecore/*` file a tranche may change — a carve-out from no-tranche-touched-maps; it is committed source, not a generated map",
+            "step": "after merge, run `npm run sitecore-tools:atoms:update` ONCE over the merged catalog, then check-atoms-lock.mjs — serially, like the maps"
+          }
+        ]
+      },
+      "owned_by_core_note": [
+        "comment-economy audit (audit-comment-density.mjs) — EVERY run, not just Content SDK",
+        "the three-check pre-completion validation gate (lint / build / git-status)",
+        "the delivery loop, tranche cadence and the bounded 5 loop-back",
+        "the parallel-tranche eligibility checks and the worktree mechanics",
+        "the minimal-report envelope"
+      ]
+    },
+    "test": {
+      "visual_harness": "standalone_build",
+      "requires_smoke": true,
+      "owns_final_gate": true,
+      "owns_final_gate_note": "The content-sdk pack contributes /test-content, which carries the `final` gate. So core's /test resolves to the `build` gate by asking 'is there an active downstream stage declaring gate: final?' — no platform name needed. This is what dissolves the awkward 'OR a content-sdk run with content_authoring == no' clause: with the content phase deactivated (content_authoring: no), the downstream stage is inactive and /test becomes the final gate automatically.",
+      "skills": [
+        {
+          "skill": "content-sdk-{router}-router-troubleshoot-editing",
+          "load": "mandatory_when",
+          "when": "before the editor/preview verification axis",
+          "why": "Enumerates the failure modes that do not surface on a plain localhost hit — missing draftMode() branch, missing setRequestLocale, component-map miss in the editing API, preview cookie not flowing."
+        },
+        {
+          "skill": "content-sdk-debug-layout-probe",
+          "load": "mandatory_when",
+          "when": "verifying layout for each in-scope page",
+          "why": "The /api/layout-debug route is the canonical diagnostic. Capture the layout response and assert each rendering componentName, dataSource, params and fields shape match expectations. Install during development; gate by NODE_ENV or remove before ship."
+        },
+        {
+          "skill": "content-sdk-resolver-patterns",
+          "load": "mandatory_when",
+          "when": "writing any test fixture",
+          "why": "Fixtures must use REAL captured Edge payloads, never paraphrased shapes. Empty-state field shapes (Image {value:{}}, Link {value:{href:\"\"}}) require explicit defensive-read tests."
+        },
+        {
+          "skill": "sitecoreai-edge-graphql-capture",
+          "load": "when_relevant",
+          "topic": "Edge limits",
+          "why": "Depth / complexity limits are HARD constraints — a test that exceeds them indicates an architecture bug, not a flaky test. Surface it as an architectural finding, not as triage."
+        },
+        {
+          "skill": "content-sdk-tracking-consent",
+          "load": "mandatory_when",
+          "when": "the head app tracks visitors — true for every stock Content SDK head app (Bootstrap + CdpPageView + PersonalizeProxy)",
+          "why": "Run the skill's real-UA Playwright acceptance test (no consent / granted / withdrawn / granted mid-session) against a production build; a headless UA is a bot and passes vacuously.",
+          "evidence": "S1 capability-gap track 2026-10-01: all six shipped live sites initialised tracking without consent; the gate was proven on a throwaway app (states A-D) and on a personalized route (P7)."
+        },
+        {
+          "skill": "content-sdk-search",
+          "load": "mandatory_when",
+          "when": "variables.search != none",
+          "why": "Search is disabled in Preview (rule 85): assert on a PUBLISHED page only — total > 0, a null query renders the empty state, nullResults: true is emitted with consent granted. Before /publish, list \"search live result\" as unverifiable rather than folding it into a pass."
+        },
+        {
+          "skill": "content-sdk-troubleshooting",
+          "load": "mandatory_when",
+          "when": "any axis fails — before the fix leg of the delivery loop",
+          "why": "Each loop iteration starts from a symptom; naming the layer and the instrument that proves it (preview is permissive, a followed redirect behind SSO is a false 200) keeps the bounded loop from spending iterations on the wrong layer."
+        }
+      ],
+      "hooks": {
+        "test_fixture_setup": [
+          {
+            "step": "Components Preview tree — COMPOSED by the Content Author (14), AUDITED by QA (07)",
+            "why": "Authoring into Sitecore is 14's identity and it owns the composition skill and model tier. The separation is the point: 07 did not build the tree it audits.",
+            "spawn": "Agent(subagent_type: \"content-author\")",
+            "loads": [
+              "sitecoreai-content-composition",
+              "sitecoreai-agent"
+            ],
+            "task": "create the `Components Preview` root under Home (idempotent) and one subpage per in-scope component with ALL that component's variants composed and labelled, using THROWAWAY content. Structural components get their inner placeholder(s) filled with sample children — never an empty box. Set an explicit __Sortorder per subpage so the tree reads in component order.",
+            "is": "test scaffolding, not content — the real pages are authored later, in the content phase",
+            "cadence": "once, by one agent, after the merge — which is why concurrent tranches never touch it",
+            "source": "rule 80 § 0b",
+            "known_traps_report_do_not_work_around": [
+              "create_page does NOT set the Page Design field — a page created without it renders with NO chrome",
+              "set_component_datasource 422s against a rendering created via raw Authoring GraphQL unless that rendering carries a proper Datasource Template — exactly the Developer-AGQL to MCP handoff this step introduces"
+            ]
+          }
+        ]
+      },
+      "fixture_gates": [
+        {
+          "id": "chrome-assertion",
+          "assert": "read back the Page Design field on EVERY page 14 composed",
+          "why": "create_page does not set it, and a chrome-less tree is a misleading review surface that otherwise passes green",
+          "scope": "every Content SDK run, serial and parallel alike",
+          "on_fail": "a finding, not something to accept"
+        },
+        {
+          "id": "zero-empty-slots",
+          "name": "the \"0 empty slots\" completeness gate",
+          "assert": "every placed component renders non-empty",
+          "on_fail": "a finding, not something to accept"
+        }
+      ],
+      "additions": {
+        "test_axes": [
+          {
+            "id": "editor-preview-verification",
+            "text": "Beyond the standalone smoke checks, verify the implementation behaves correctly inside SitecoreAI's editor and preview surfaces. Run the checks the troubleshoot-editing skill names; record each as a PASS / FAIL / WARN row in the test report.",
+            "severity_on_fail": "MAJOR even when the standalone render is clean — Content SDK heads ship into SitecoreAI, not standalone."
+          },
+          {
+            "id": "tracking-consent-acceptance",
+            "text": "Mandatory evidence for every head app that tracks. First run `node .agent/scripts/audit-tracking-consent.mjs --app <head-app>` (static wiring, must exit 0 or carry reasoned waivers). Then run the skill's runtime spec: copy `.claude/skills/content-sdk-tracking-consent/assets/tests/consent-acceptance.spec.ts` to `<head-app>/e2e/` with its own `playwright.consent.config.ts` (references/acceptance-test.md), against `next build && next start` (never `next dev`), with a REAL Chrome UA pinned via `test.use({ userAgent })`, `reuseExistingServer: false`, `SOFT_NAV_PATHS` (two or more real hrefs) and `CONSENT_POLICY_VERSION`. Pass = B (consent before load: create.json 201 + VIEW 201, a VIEW per soft navigation) runs first and passes, then A (no consent: 0 /v1/events* and /v1/personalize* calls, no sc_cid / sc_cid_personalize, banner visible), D (grant mid-session: create.json + VIEW for the current page with no new document request), C (withdraw: tracking cookies gone on every domain, then 0 beacons) and C2 (stale sc_cid deleted by Reject all). Record each state as a PASS / FAIL row in the test report with the request counts.",
+            "real_ua_required": "isbot() classifies HeadlessChrome as a bot: a default-UA run sees zero tracking EVEN WITH THE GATE REMOVED, so its A/C/D zeros prove nothing. A zero counts only after B passed in the same run.",
+            "tenant_volume": "each run creates about 3 guests and 5 VIEWs on the configured context: use a non-production context; on a LIVE context it is a go_live-gated mutation.",
+            "severity_on_fail": "MAJOR — consent is a standard acceptance criterion (glossary § Tracking consent); a failed state or a missing real-UA run blocks the gate."
+          },
+          {
+            "id": "served-html-preview-proof",
+            "applies_when": "the app uses Cache Components — `cacheComponents: true` in next.config, or variables.freshness == osr (a migration tranche included)",
+            "text": "Mandatory before anything reaches production. Run the guard against THIS branch's Vercel Preview (Deployment Protection: pass the bypass via env, never print it): `MSYS_NO_PATHCONV=1 node .claude/skills/content-sdk-app-router-cache-components-and-osr/scripts/check-served-html.mjs <preview-url> / /<locale> <one page per page type, every locale> --expect-404=/zz-missing,/<locale>/zz-missing,/<page-type>/zz-missing`. Every path is requested twice (cold resume, then cache HIT) and must answer the expected status with `</html>`, flight chunks (`self.__next_f.push`) and the size floor. When a known-broken deployment exists, run the same command there as the negative control: it must exit 1. Record the deployment id, the exit code and the request count in the test report.",
+            "why": "Local `next start` renders in one pass; Vercel serves the cached shell and then a separate PPR resume invocation, and a resume that comes back empty is invisible locally. Measured 2026-10-15: a prerendered `notFound()` param plus a request API in not-found.tsx emptied every page's resume in production — HTTP 200, ~21 KB, no `</html>`, nothing hydrated, no analytics — while build, `next start`, the unit suite and the full e2e were green. The first hotfix then turned every unknown path into a 500 (`DYNAMIC_SERVER_USAGE`), which only the --expect-404 leg can see: a 500 page is a complete-looking document.",
+            "severity_on_fail": "CRITICAL — a fail means production would serve pages that do not hydrate; it blocks the gate.",
+            "evidence": "skill content-sdk-app-router-cache-components-and-osr § Verify step 0 and references/migration-traps.md"
+          }
+        ]
+      },
+      "constraints": [
+        {
+          "id": "preview-first-test",
+          "text": "Test against the PREVIEW surface — do not publish to LIVE Edge to make a test pass. The smoke here verifies the preview render; the published/live smoke belongs to /publish.",
+          "source": "glossary § Preview-first delivery"
+        }
+      ],
+      "finding": "RESOLVED 2026-08-22 (tranche 6). The route-reachability crawl, destination-distinctness, motion-ON visibility, responsive-at-3-viewports and desktop containment are CORE assertions running on every UI run under both harnesses — this pack neither claims nor skips them. It contributes only the editor/preview axis on top.",
+      "smoke_gating": {
+        "live_edge": "Initialize one smoke_outcomes entry per published page hosting Sitecore renderings, outcome: pending until the operator confirms (a) the page renders with NO <MissingComponent> placeholders, (b) every rendering displays the expected content, (c) navigation works with no flicker. tested_pending_smoke blocks until all entries clear.",
+        "static_zero_tenant_variant": {
+          "when": "a Content SDK build with no live Edge — an Act-1 reference app, or any visual head-app build with no published tenant yet",
+          "why": "The live-Edge smoke does not apply (there are no renderings to probe), which would otherwise leave the run with NO visual gate at all — animated / SPA content can ship invisible.",
+          "instead": "ONE smoke_outcomes entry of category live_walkthrough, outcome: pending, \"operator visual walk\" — the operator opens the running site with motion ON and CLICKS THROUGH THE NAV (not just reloads) on each route in BOTH themes, confirming no empty bands, stuck content or blank pages.",
+          "effect": "The pending entry forces tested_pending_smoke (and /ship → shipped_with_caveats until recorded), making the human eyeball a real gate for visual products rather than a deferred follow-up.",
+          "not_a_substitute": "The automated reveal/smoke E2E spec is its complement, not its replacement."
+        },
+        "dominant_surface": "layout verification via the live Edge response — the iframe/POC harness does not apply here."
+      }
+    },
+    "architect": {
+      "shape": "two-track — a CMS track (operator works in Sitecore Pages) and a head-app track. Stop gates are sync points between the tracks, and every ADR must name which side of each sync gate is the source of truth.",
+      "additions": {
+        "required_adrs": [
+          "scaffold command (per setup-content-sdk)",
+          "datasource-pattern policy per rendering type",
+          "theme strategy — Tailwind v4 @theme + dark/light/system per content-sdk-app-router-theme-hydration-pattern",
+          "navigation strategy — component-level GraphQL vs SXA Navigation Content Resolver",
+          "publish / Edge-cache invalidation flow — on-demand revalidation (OSR: the nextjs-app-router-cache-components template + an OnUpdate Experience Edge webhook → /api/revalidate) vs redeploy-on-publish (plain template). One ADR that RATIFIES variables.freshness (asked at intake, because the baseline is scaffolded before this stage) and, under osr, variables.osr_sdk_line: state the trade-off (canary pin vs the stable 2.4.x sitewide purge), the version actually scaffolded and the fallback. Overturning the intake answer after the baseline exists = the OSR skill § 8 migration tranche, never a re-scaffold",
+          "server-action-vs-route-handler policy for client-triggered reads",
+          "WHEN variables.search != none — search: source type (content / site / push), freshness model (reindex cadence vs Edge OnUpdate webhook → push + replay after every reindex), SSR (SearchService, ISR-cacheable) vs client hooks, SDK floor, and rollout CONFIRMED on the target environment (yes / no — the query plane answering proves nothing about sources)",
+          "WHEN variables.languages has additional locales — i18n: URL strategy (as-needed prefix and the /en duplicate, appLocalePrefix), dictionary vs datasource for microcopy (rule 86), fallback (an environment patch, i.e. a CM deploy, vs host flags — off on Edge by default), message shape (nested by site), and moving <html lang> into src/app/[site]/[locale]/layout.tsx"
+        ],
+        "architecture_doc_sections": [
+          "component strategy, placeholder conventions, middleware stack, and editing-preservation requirements — outline only; the Developer designs concrete components during implementation"
+        ]
+      },
+      "additions_reason": "Moved out of the CORE agent identity file 04-software-architect.md on 2026-08-23. It had sat there as a bullet since before the pack refactor, so a `platform: none` composition shipped an Architect carrying SitecoreAI collection law it can never apply — and it cited rule 84, which the core export no longer contains, leaving a dangling pointer. The extraction-coverage gate never caught it because no golden ever pinned these tokens: the gate proves that what MOVED survived, not that everything that SHOULD move did. That gap is what the new no-dangling-citation check in export-flow.test.mjs closes.",
+      "skills": [
+        {
+          "skill": "setup-scaffold",
+          "load": "always",
+          "why": "The scaffold decision is an architecture decision and is captured as an ADR."
+        },
+        {
+          "skill": "content-sdk-website-build-flow",
+          "load": "when_relevant",
+          "topic": "two-track model",
+          "why": "NEW vs EXISTING content-model direction, build-directly vs static reference app. Domain craft, not stage orchestration."
+        },
+        {
+          "skill": "content-sdk-resolver-patterns",
+          "load": "mandatory_when",
+          "when": "any per-rendering decision",
+          "why": "Identify the pattern (Standard Datasource / All-Fields / Integrated GraphQL / Content Resolver / Context-based) from each rendering YAML BEFORE proposing a component shape."
+        },
+        {
+          "skill": "sitecoreai-edge-graphql-capture",
+          "load": "mandatory_when",
+          "when": "any GraphQL-shaped ADR",
+          "why": "Edge complexity limits (15-depth, complexity-by-pagination, no /schema endpoint) constrain the decision.",
+          "evidence": "Finding B — reached the model ONLY through 04-software-architect.md."
+        },
+        {
+          "skill": "content-sdk-app-router-component-level-navigation",
+          "load": "mandatory_when",
+          "when": "any navigation is in scope",
+          "why": "This pattern IS the canonical answer — not the SXA Navigation Content Resolver.",
+          "evidence": "Finding B — reached the model ONLY through 04-software-architect.md."
+        },
+        {
+          "skill": "content-sdk-app-router-theme-hydration-pattern",
+          "load": "mandatory_when",
+          "when": "theme / dark-light is in scope",
+          "evidence": "Finding B — reached the model ONLY through 04-software-architect.md."
+        },
+        {
+          "skill": "content-sdk-tracking-consent",
+          "load": "mandatory_when",
+          "when": "the head app tracks visitors — true for every stock Content SDK head app (Bootstrap + CdpPageView + PersonalizeProxy)",
+          "why": "Consent is a standard acceptance criterion: no consent = no tracking cookies, no edge-platform beacons, no proxy decision; grant starts tracking without a reload; withdrawal wipes sc_cid. The gate sits in four places and needs an authorable banner component.",
+          "evidence": "S1 capability-gap track 2026-10-01: all six shipped live sites initialised tracking without consent; the gate was proven on a throwaway app (states A-D) and on a personalized route (P7)."
+        },
+        {
+          "skill": "content-sdk-personalization",
+          "load": "when_relevant",
+          "topic": "personalization",
+          "why": "PersonalizeProxy is ON in every production build and costs an Edge lookup per request: set personalize.enabled:false when the site has no personalization; scope must equal PAGES_PERSONALIZE_SCOPE; forward geo on Vercel or geo audiences match the hosting region."
+        },
+        {
+          "skill": "content-sdk-app-router-cache-components-and-osr",
+          "load": "when_relevant",
+          "topic": "publish freshness",
+          "why": "Feeds the publish-freshness ADR: OSR needs the cache-components template (the plain nextjs-app-router template has no revalidate route, and hand-wired fetch tags are dead), and on 2.4.x item-level OSR cannot match a cached page — an end-to-end refresh there is a sitewide purge. The baseline is scaffolded at /create-prd, before this stage, from variables.freshness (asked at intake), so this stage ratifies that answer; overturning it on an existing app means the § 8 migration tranche, not a flag.",
+          "evidence": "S5 capability-gap track 2026-10-02: 2.4.0 vs 2.5.0-canary probed locally and on Vercel (item-only POST: 2.4.0 tagsCount 8 and an unrelated page STALE; canary 1 tag, unrelated page HIT)."
+        },
+        {
+          "skill": "sitecoreai-edge-admin-webhooks",
+          "load": "when_relevant",
+          "topic": "publish freshness",
+          "why": "The platform's publish signal is the Experience Edge Admin API webhook (OnUpdate), not the Publishing API (no callback) and not a CM webhook (fires before Edge is live). It needs an Edge administration client per environment and arrives 86–175 s after publish start; a receiver answering non-2xx auto-disables it within one publish.",
+          "evidence": "S5 probes P1–P7, 2026-10-02."
+        },
+        {
+          "skill": "content-sdk-search",
+          "load": "mandatory_when",
+          "when": "variables.search != none"
+        },
+        {
+          "skill": "sitecoreai-search-sources",
+          "load": "mandatory_when",
+          "when": "variables.search != none"
+        },
+        {
+          "skill": "content-sdk-{router}-router-dictionary-and-i18n",
+          "load": "mandatory_when",
+          "when": "variables.languages has additional locales"
+        },
+        {
+          "skill": "sitecoreai-localization",
+          "load": "mandatory_when",
+          "when": "variables.languages has additional locales"
+        },
+        {
+          "skill": "content-sdk-app-router-atoms",
+          "load": "mandatory_when",
+          "when": "variables.sdk_line == beta.atoms",
+          "why": "The version gate and the OSR conflict are architecture facts; the atom inventory and token-name contract start here."
+        }
+      ],
+      "finding": "this whole stage declaration had NO home before tranche 3. The skills and the required-ADR list lived only in 04-software-architect.md, which is why plan Finding B was blocked on the pack contract carrying architect.skills + architect.required_adrs.",
+      "existing_site_rebuild": {
+        "when": "this is an existing-site rebuild — the spec names a source tenant/site",
+        "requires": "canonical_artifacts.content_model (the sitecore-inventory-<timestamp>.md written by /discover-sitecoreai, which runs between /create-prd and /architect)",
+        "rule": "LOAD it and treat the real renderings + datasource field TYPES/CASING + resolver patterns as the design contract. Do NOT emit [ASSUMED] shapes for existing-site components; cite the inventory.",
+        "on_absent": "STOP and direct the operator to run /discover-sitecoreai first — the Architect needs the real component contract",
+        "source": "rule 81-existing-site-discovery"
+      }
+    },
+    "design": {
+      "skills": [
+        {
+          "skill": "frontend-design:frontend-design",
+          "load": "always",
+          "why": "ROLE: spine. Anthropic's design-quality skill, cited NAMESPACED so it resolves to the installed plugin (a local bare-name copy would shadow it). It sets the PROCESS every variant follows — ground in the subject → compact token plan → review the plan for genericness (against its tell list AND designs/ledger.md) → build → critique — and its typography rules and tell list win every conflict with the skills below (see skill_roles.precedence). Until 2026-09-11 nothing in the pipeline loaded ANY design skill; measured then: six of seven shipped head apps in one warm-paper ground cluster at ΔE_OK 0.009."
+        },
+        {
+          "skill": "impeccable",
+          "load": "always",
+          "why": "ROLE: direction + critic. Read ONLY reference/new-work.md § 3–4 (seven candidate worlds, rut + predictable-opposite exclusion, ≥ 3 material families, the direction contract THESIS / OWN-WORLD / STORY / FIRST VIEWPORT / FORM / FINISH) and reference/craft-floor.md (contrast 4.5:1, measure 65–75ch, display ≤ 6rem, tracking ≥ −0.04em) when designing; reference/critique.md + reference/audit.md when reviewing. Its build process, hooks, live mode, `impeccable init` and the hosted roll API are NOT used here — the stage command owns the process. Run over the seven real POC folders it fired cream-palette 69×, overused-font 77×, hero-eyebrow-chip 116× on work the previous critic passed."
+        },
+        {
+          "skill": "design-taste-frontend",
+          "load": "mandatory_when",
+          "when": "the archetype is brand-storytelling, editorial-library, or a marketing/landing surface (the skill's own scope: landing pages, portfolios, redesigns — it says NOT dashboards or multi-step product UI); otherwise loaded only by the critic as a second tell list",
+          "why": "ROLE: taste pre-flight. Its pre-flight check, the three numeric dials + use-case presets, seven named palette FAMILIES beyond the cliché, and mechanical layout thresholds (eyebrow count ≤ ⌈sections/3⌉, ≥ 4 layout families per 8 sections, zigzag cap 2, one accent, one radius scale). Leads variant v3 when ui_variants = 3. Its 16 banned hex literals are NOT a check (0/16 hits on an estate where five apps sit in the banned family) — designs-ledger.mjs check is. Its § 2 / Appendix A component packages do not apply to a Tailwind-v4 @theme head app."
+        },
+        {
+          "skill": "emil-design-eng",
+          "load": "mandatory_when",
+          "when": "the archetype is self-service-portal, faceted-catalog, comparison-decision, transactional-booking or directory-people — anything with forms, tables, filters, states, dense product UI",
+          "why": "ROLE: product-UI polish. Component states, the invisible details (focus, disabled, loading, empty, optimistic feedback), touch targets, when NOT to animate. The taste skill explicitly excludes this territory; this one owns it. Its 'default to the system font' posture is overruled by the spine (skill_roles.precedence)."
+        },
+        {
+          "skill": "animate",
+          "load": "when_relevant",
+          "topic": "any motion in the POC — page-load moment, reveal, hover, transition",
+          "why": "ROLE: motion build. The decision order (should it animate at all → purpose → tool → properties → curve + duration → interruption → exit) and named curves / duration tables that become @theme tokens. Nothing in the framework carried easing or duration values before 2026-09-11."
+        },
+        {
+          "skill": "review-animations",
+          "load": "always",
+          "why": "ROLE: critic (motion axis). The Never-Ship list — `transition: all`, `scale(0)`, `ease-in` on entrances, ungated :hover, missing prefers-reduced-motion — and the seven AI-slop motion categories with numeric thresholds. Loaded by the FRESH critic in step 4, never by the author."
+        },
+        {
+          "skill": "content-sdk-variants-vs-siblings",
+          "load": "mandatory_when",
+          "when": "proposing \"same concept, multiple looks\"",
+          "why": "Variants share the rendering data shape (cheap); siblings need separate Sitecore items (expensive). The choice is a design-time cost decision."
+        },
+        {
+          "skill": "content-sdk-layout-composition",
+          "load": "mandatory_when",
+          "when": "a design has columns, rows, a split or bento section, or any arrangement an author might rearrange",
+          "why": "Pick the layout rung per section at DESIGN time: grid params on ordinary components, Container + splitters, a custom slot component with presets, or a fixed-layout component. Each costs different CM and head-app work, and a bento grid assembled from splitters breaks at the first unexpected width."
+        },
+        {
+          "skill": "content-sdk-app-router-theme-hydration-pattern",
+          "load": "always",
+          "why": "Dark+light+system is mandatory; the token surface is the Tailwind v4 @theme block in globals.css. Wire tokens BEFORE per-component design."
+        },
+        {
+          "skill": "content-sdk-search",
+          "load": "mandatory_when",
+          "when": "variables.search != none",
+          "why": "The POC shows idle, loading, empty (null result), error and the editing skeleton — search is disabled in Preview, so the editing state is what an author sees."
+        },
+        {
+          "skill": "content-sdk-app-router-atoms",
+          "load": "mandatory_when",
+          "when": "variables.sdk_line == beta.atoms",
+          "why": "Sub-deliverable: an atom inventory (name, Zod / field schema, slots, allowed parents and children, version), a token NAME contract (Documents write Tailwind class names against globals.css) and one or two marketer compositions in the POC."
+        }
+      ],
+      "skill_roles": {
+        "why": "Five design skills are five ROLES, not five opinions to average. Two of them contradict each other and one contradicts rule 86; loaded flat, an agent follows whichever it read last. This block says who leads what, and who wins. Rendered into the design brief; consumed by 04b-design.md step 2 (leads) and step 4 (critic).",
+        "when_absent": "A skill named here that is not installed is a missing input, NOT an error: do not stop. Record `skill not available: <name>` in the variant spec § 1 and in operator_attention[], do not recite its rules from memory as if it had loaded, and let that role work from `constraints` and the stage steps (token plan, ledger check, genericness review). The third-party skills are never republished, so a public export carries none of them: where to get each, and the full fallback, is .agent/packs/platform/content-sdk/reference/design-skills.md.",
+        "roles": {
+          "spine": "frontend-design:frontend-design — the process + the tell list; always; wins conflicts",
+          "direction": "impeccable new-work § 3–4 + craft-floor — candidate worlds, rut exclusion, the direction contract, the numeric floor",
+          "taste_preflight": "design-taste-frontend — pre-flight, dials, palette families, layout thresholds (marketing / brand / editorial surfaces)",
+          "product_polish": "emil-design-eng — states, details, forms, tables (portal / catalog / comparison / booking / directory surfaces)",
+          "motion_build": "animate — the decision order for any motion the POC carries",
+          "critic": "a FRESH agent (never the author) loading impeccable critique + audit, review-animations, the taste tell list and the spine's tell list — findings {axis, where, what, fix}, verdict accept | fix | rebuild",
+          "ledger": "designs-ledger.mjs check on every token plan before HTML — not a skill, a gate (exit 1 on ≥ 2 occupied axes)"
+        },
+        "variant_leads": {
+          "rule": "When ui_variants ≥ 2, divergence comes from METHOD, not from adjectives in the prompt. Every variant runs the same spine, the same brief constraints, the same ledger check and the same critic; what differs is which skill LEADS the direction step. Record the lead in the variant spec § 1.",
+          "v1": "spine — subject-grounded: the direction comes from the brand's own world (materials, instruments, vernacular). The most 'true to the brief' variant.",
+          "v2": "impeccable seeded world roll — list the seven candidate worlds, exclude the rut and its predictable opposite, pick by seeded index 3..7 (sha1(product + prd) mod 5 + 3, recorded in the spec), so the direction is never the first or second thing that came to mind.",
+          "v3": "design-taste-frontend — set the three dials from the brief's use-case preset and commit to ONE of its named palette families outside the ledger's spent bands; for product-UI archetypes swap in emil-design-eng as the lead instead."
+        },
+        "precedence": [
+          "The content-sdk brief's constraints (fields-shaped props with empty / missing / author-overlong as first-class states, editor chrome breathing room, 3-state theme, rule 86 authorability) beat every skill.",
+          "frontend-design beats the other skills on any typographic or aesthetic conflict.",
+          "design-taste-frontend's single-word italic / coloured emphasis in a headline — NOT allowed (spine tell).",
+          "emil-design-eng / prototype's 'default to the system font stack' — NOT allowed (spine: no default families).",
+          "impeccable's 'a stock component is a lapse' — does NOT apply to Sitecore renderings; a rendering is done when an author can edit it (rule 86), and a bespoke component that hides its fields is the defect.",
+          "design-taste-frontend's copy-length caps — overruled; author-overlong strings are a first-class design dimension here.",
+          "design-taste-frontend's em-dash ban and any copy-voice rule — overruled by the run's voice skill (`sitecoreai-brand-voice` by default) for the words.",
+          "impeccable's process, hooks, live mode, `init` and hosted roll API — not used; the stage command owns the process."
+        ]
+      },
+      "constraints": [
+        {
+          "id": "fields-shaped-props",
+          "text": "Components receive Sitecore `fields`-shaped props — text / image / link arrive in { value: ... } envelopes rendered by SDK helpers. Empty fields ({value:\"\"}), missing optional fields and author-overlong strings are FIRST-CLASS design dimensions, not edge cases."
+        },
+        {
+          "id": "editor-chrome-breathing-room",
+          "text": "Editor chrome attaches at runtime in Pages Editor — renderings get wrapped in overlay widgets (drag handles, action buttons). Design breathing room around component edges so chrome does not crash content."
+        },
+        {
+          "id": "theme-mandatory",
+          "text": "Dark + light + system theme is mandatory, not optional polish."
+        }
+      ]
+    },
+    "task-breakdown": {
+      "skills": [
+        {
+          "skill": "content-sdk-resolver-patterns",
+          "load": "mandatory_when",
+          "when": "every rendering task",
+          "why": "§ 4c-1 (Source files) and § 4c-6 (API contracts) MUST name which of the 5 patterns the rendering uses — it drives the prop shape and the test fixture."
+        },
+        {
+          "skill": "content-sdk-variants-vs-siblings",
+          "load": "mandatory_when",
+          "when": "a task adds a visual variant",
+          "why": "Decide variant-or-sibling at PLANNING time and reflect it in file naming: <Component>.<Variant>.tsx for variants, a new folder for siblings."
+        },
+        {
+          "skill": "content-sdk-layout-composition",
+          "load": "mandatory_when",
+          "when": "a page uses Container / Column or Row Splitter, a component exposes its own placeholders, or a design shows components side by side",
+          "why": "The scaffold ships no structure components and no grid CSS. Plan the helper, the three structure components and the static grid CSS as one task in the FIRST tranche that needs them; plan a custom slot component with its CM items (params template, one Placeholder Settings item per slot, rendering) and its § 6 probe. Plan per page against the layout policy and responsive matrix (references/policy-and-fit.md), and plan the fit file plus a container-aware task for every component a design puts into a column."
+        },
+        {
+          "skill": "content-sdk-component-naming-traps",
+          "load": "mandatory_when",
+          "when": "writing § 4c-1 file paths",
+          "why": "Only Sitecore-registered .tsx (and .<Variant>.tsx siblings) live under src/components/<X>/; helpers go in src/lib/<feature>/ or src/app/api/. Plans that put types / queries / sub-components / actions inside the component folder are REJECTED at planning time, not at implement time."
+        },
+        {
+          "skill": "content-sdk-app-router-route-handler-vs-server-action",
+          "load": "mandatory_when",
+          "when": "any task involving client-triggered server data fetching",
+          "why": "Defaults to a Route Handler; Server Actions only for genuine mutations."
+        },
+        {
+          "skill": "content-sdk-tracking-consent",
+          "load": "mandatory_when",
+          "when": "the head app tracks visitors — true for every stock Content SDK head app (Bootstrap + CdpPageView + PersonalizeProxy)",
+          "why": "Consent is a standard acceptance criterion: no consent = no tracking cookies, no edge-platform beacons, no proxy decision; grant starts tracking without a reload; withdrawal wipes sc_cid. The gate sits in four places and needs an authorable banner component.",
+          "evidence": "S1 capability-gap track 2026-10-01: all six shipped live sites initialised tracking without consent; the gate was proven on a throwaway app (states A-D) and on a personalized route (P7)."
+        },
+        {
+          "skill": "content-sdk-search",
+          "load": "mandatory_when",
+          "when": "variables.search != none",
+          "why": "Search is a PROBE TRANCHE FIRST (rule 70): rollout confirmed, source exists, response fixture captured with probe-search.mjs --out. CM tasks (Plugin-field template, rendering, Available Renderings, variants, dictionary) are separate from the UI-only source setup, which is an operator-attention item."
+        },
+        {
+          "skill": "content-sdk-{router}-router-dictionary-and-i18n",
+          "load": "mandatory_when",
+          "when": "variables.languages has additional locales",
+          "why": "The locale root layout and the routing/sites/dictionary agreement are one early tranche; per-locale content is the content phase, not a build tranche."
+        },
+        {
+          "skill": "content-sdk-app-router-atoms",
+          "load": "mandatory_when",
+          "when": "variables.sdk_line == beta.atoms",
+          "why": "Atoms (code) compare to the POC; compositions (content) do not — mark the visual compare per surface. The lock regenerates serially at tranche join."
+        },
+        {
+          "skill": "content-sdk-feature-planner",
+          "load": "mandatory_when",
+          "when": "a task adds or changes a component or the content model",
+          "why": "Its decision order (kind of thing → content model → rendering → data strategy → authorability → cross-cutting → delivery) is what § 4c-1 and § 4c-6 must already have answered per component; an unanswered row is a planning gap to fix here, not at /implement."
+        }
+      ],
+      "tranche_shape": "one tranche per Sitecore rendering — slice around the per-component build loop /implement owns (rule 71), in addition to phase-level slicing.",
+      "per_component_decisions": [
+        {
+          "decision": "LIST component or single component?",
+          "ask": "Would an author ever want to ADD a row to this rendering?",
+          "answered_by": "variables.list_delivery — resolved once at intake by the repeating-rows question on the create-prd stage. Read it; do NOT re-ask per component and do NOT default silently. The per-component call is only WHICH renderings are lists; HOW a list delivers is one run-wide trade the operator already made.",
+          "if_yes": "It is a list component: container + element templates, insert options via the container's __Standard Values.__Masters, a BRANCH as the rendering's Datasource Template, and children-aware delivery. Load `content-sdk-list-component`.",
+          "why_here": "The question has to be answered in the PLAN, because the answer changes the schema tasks — two templates, a branch, and an insert-options step that does not exist for a single component. Decided during the build it gets skipped: the component renders correctly either way, so nothing downstream surfaces it.",
+          "evidence": "A prior run, 2026-08-26: four renderings display repeating rows (Header nav links, ServiceTrio services, SelectedWork entries, StatBand stats) and NOT ONE was planned as a list component. 74 unit tests, 7/7 authorability-clean, four code reviews and a full /test all passed; a human opening Pages and looking for an add button found it.",
+          "evidence_sharpest": "The framework had already CLASSIFIED them correctly and it changed nothing. /discover-components writes a `Kind: content · list|flat` line per component, and on that run it recorded `list` for exactly those four and `flat` for the other three — a correct reading of what was built, produced in the CONTENT phase, AFTER the build. Nothing consumes the classification, and by the time it exists the schema is already live and serialized. This is why the decision belongs HERE, in the plan: a classification that arrives after the thing it classifies cannot influence it."
+        }
+      ],
+      "additions": {
+        "tranche_template": [
+          "probe layout via /api/layout-debug",
+          "identify the resolver pattern",
+          "scaffold (file + folder per naming-traps)",
+          "implement with SDK field components",
+          "register via npm run sitecore-tools:generate-map",
+          "verify via repeat /api/layout-debug",
+          "/code-review + /test on the component (loop back on a Critical/Major or a test fail, bounded 5)",
+          "automated visual compare against the selected POC's screens/ captures — a delta beyond threshold is a delivery-loop failure that loops back to the Developer, NOT an operator stop (rule 71: the build phase is autonomous; the operator sees the whole build once, at the `build` gate)"
+        ],
+        "section_4c_requirements": [
+          "§ 4c-1 + § 4c-6 name the resolver pattern per rendering",
+          "§ 4c-1 file paths honour the component-folder rule",
+          "§ 4c-7 reflects the /implement per-component delivery-loop contract — never an external umbrella skill"
+        ]
+      }
+    },
+    "create-prd": {
+      "hooks": {
+        "discovery.questions": [
+          {
+            "q": "AUTHORING — create a NEW authoring solution, or REUSE an existing one? (A) NEW: a CM code base is scaffolded from templates/authoring-baseline/, and /provision-sitecoreai creates a new SitecoreAI environment, site collection and editing host. (B) REUSE: point at a CM that already exists — no CM scaffold, no new environment; the head app connects to it, and any baseline commit lands in a repo this framework did not create.",
+            "resolves": "variables.authoring_mode",
+            "ask_first": true,
+            "why": "This is the FIRST question, and it is independent of where the head app is stored. It decides whether /discover-sitecoreai copies the authoring baseline, whether /provision-sitecoreai creates an environment, and whether the `go_live` gate has a new tenant surface to protect. Until 2026-09-01 it was never asked as a question at all — it was SMUGGLED into 'Deploy project name and head-app name?', where naming an existing project meant REUSE and naming a fresh one meant NEW. An operator answering a naming question is not knowingly answering a provisioning question.",
+            "independent_of": "variables.repo_topology — all four combinations are valid. A NEW CM can host the head app as a sibling; an EXISTING CM can take it inside sites/. Collapsing the two axes is what made one of the four unreachable.",
+            "evidence": "Operator, 2026-09-01 (hello-sitecore): 'there should be first a question if a new authoring should be created or you want to reuse one and independant from that where to store the head app inside the cm in its sites folder or as sibling of that cm'. Raised after the run's Q1 offered three folder options that all presupposed the sibling layout, so 'inside cm/sites/' — the answer the operator actually wanted — could not be picked.",
+            "see": "repo_setup.topology.existing_cm — REUSE carries three binding deviations: no git init, no remote question, and the root xmcloud.build.json is EDITED IN PLACE (a template copy destroys the operator's postActions / scsModules)."
+          },
+          {
+            "q": "STORAGE — where does the head app live, relative to that CM? (A) INSIDE the CM repo at cm/sites/<head-app-slug>/ — one repo spanning authoring/ and every head app, so a content-model change and the component that consumes it land in ONE commit; one root xmcloud.build.json carries authoringPath and every renderingHosts entry; branches are prefixed <head-app-slug>/prd-NNN. (B) SIBLING of the CM at <project-slug>/<head-app-slug>/ — the head app is its OWN git repo, independently clonable, releasable and permissioned; its own xmcloud.build.json with path './'; branches stay unprefixed.",
+            "resolves": "variables.repo_topology",
+            "ask_second": true,
+            "why": "Asked IMMEDIATELY after the authoring question and INDEPENDENTLY of it. BOTH are correct SitecoreAI and neither is a default the framework should pick for the operator. It decides the folder the app is scaffolded into, where `git init` runs, which xmcloud.build.json shape is written, and whether branches carry a head-app prefix — all of which land before the first commit, so answering later means redoing all four.",
+            "phrasing_rule": "Ask it as a STORAGE question in the operator's terms — 'inside the CM, or beside it?' — never as a git-topology question, and NEVER by offering folder paths that already assume one answer. A question whose option set spells only `<project>/<head-app>/` has silently answered itself.",
+            "default_if_unanswered": "repo-per-deployable — what every head app under products/head-application/ uses today. State the default back at the summary checkpoint rather than applying it silently.",
+            "evidence": "Buildable and unreachable until 2026-08-31: templates/authoring-baseline/ ships in the sites/ shape and the commands transformed it into the sibling shape, three places called sites/ *legacy*, and `pack.repo_topology` was a string nothing read (BACKLOG item 22). Reachable but UNASKABLE until 2026-09-01: the question existed, but the folder question that preceded it hardcoded the sibling layout in all of its options, so the operator had to reject the question rather than answer it.",
+            "see": "pack.repo_topology.variants — the brief resolves `workspace` + `repo_setup` FOR the answer, so no stage branches on this itself"
+          },
+          {
+            "q": "Deploy project name and head-app name?",
+            "why": "The workspace is two-level (one Deploy project = one CM). Resolve during probing, BEFORE git setup, so the folder, git init and spec write all land at the right path. Under REUSE, the project name identifies the EXISTING project to join; under NEW it is the name /provision-sitecoreai passes to `cloud project create -n`.",
+            "must_not": "Do NOT use this question to establish NEW vs REUSE — that is the authoring question above, and it has already been answered by the time this is asked. A naming question that doubles as a provisioning decision is the exact defect the authoring question was split out to fix (2026-09-01)."
+          },
+          {
+            "q": "CONTENT MODEL — does this site get its OWN brand namespace, or reuse an existing brand's templates and renderings? (A) OWN: a new module folder with its own site collection, templates, renderings, placeholder settings and media root — blast radius on existing brands is zero by construction. (B) REUSE an existing brand's model in place. (C) FORK an existing brand into a new namespace, then trim.",
+            "why": "A THIRD independent axis, and only meaningful when the authoring answer was REUSE. 'Reuse the authoring solution' and 'reuse a content model' are different decisions with different blast radii, and an operator can legitimately answer them differently — reuse the CM, but author an own namespace inside it (measured: hello-sitecore, 2026-09-01). A question set treating new/reuse as ONE axis cannot express that answer. Under a NEW authoring solution there is nothing to reuse and this collapses to OWN.",
+            "why_it_matters": "Option B is what rule `84` exists to warn about: renderings are COLLECTION-scoped and shared, so a tweak to fit this site mutates it for the brand that owns it, and `Datasource Location` is a hard pin that no test, no code review, no build gate and not even `ser validate` catches. Option C is fork-don't-mutate and is safe on that axis, but `Datasource Template` is stored as a PATH, so a fork that relocates templates dangles it silently.",
+            "supersedes": "'NEW or EXISTING content model?' — which conflated the CM (a repo/environment) with the content model (templates and renderings inside it), and so was answered as whichever the reader assumed."
+          },
+          {
+            "q": "App Router or Pages Router?",
+            "resolves": "variables.router",
+            "note": "App Router is this repo default; every head app under products/head-application/ is App Router."
+          },
+          {
+            "q": "PUBLISH FRESHNESS — after go-live, how does a publish reach the live site? (A) REDEPLOY (default): plain template; a publish shows after a redeploy or the revalidate window. (B) ON-DEMAND REVALIDATION (OSR): cache-components template + an Edge webhook; a publish shows in about 1.5–3 minutes with no redeploy.",
+            "resolves": "variables.freshness",
+            "ask_when": "the run CREATES the head app (first-time repo setup). An EXTENDING run detects it from the tree and does not ask.",
+            "why": "It picks the scaffold template, and the scaffold runs at § 10a-4b, before /architect. Asked later, OSR is a migration tranche instead of a template flag.",
+            "default_if_unanswered": "redeploy — state it back at the summary checkpoint"
+          },
+          {
+            "q": "OSR VERSION LINE (only if OSR) — (A) STABLE @latest (2.4.x today): item-level OSR is broken, so every publish purges the whole site's cache. Content arrives, but nothing stays cached. (B) PIN THE 2.5.0 CANARY (exact version recorded): item-level OSR works, but the app ships on a prerelease until a stable release carries the fixes.",
+            "resolves": "variables.osr_sdk_line",
+            "ask_when": "variables.freshness == osr",
+            "why": "The trade-off has no safe default (variables.osr_sdk_line.no_default_why), and a canary pin must never land silently. Record variables.osr_cli_version with it."
+          },
+          {
+            "q": "For any component showing repeating rows (nav links, cards, entries, stats) — should an author be able to ADD a row in Pages? And should the rows be CHILDREN of the datasource (Integrated GraphQL) or REFERENCES to items elsewhere (Multilist)?",
+            "resolves": "variables.list_delivery",
+            "why": "An authoring-ergonomics trade the operator owns, not an architecture default. Integrated GraphQL: one write per row, an add-affordance in Pages, workflow-controlled go-live. Multilist: two operations in two places (create the item, then set the field) and no add-affordance — right only when the items are genuinely SHARED across components or pages.",
+            "evidence": "Never asked on that run: the discovery ledger contains zero mentions of ComponentQuery, Multilist or Integrated GraphQL. A spec-time acceptance criterion ('No ComponentQuery replaces a fields payload') was written by the PM and then cited by ADR-0005 as a binding constraint, so the architecture justified itself with a premise the same run had invented. All four repeating-row renderings became Multilist-backed and none is extendable in Pages.",
+            "see": "content-sdk-list-component; rule 86 - 'Mechanism 5 is about a query that DROPS fields'"
+          },
+          {
+            "q": "LANGUAGES — which language(s) does this site ship in? The default language, any additional locales, and for each extra locale: a mirrored tree (same pages) or divergent content, human or AI translation, and whether any locale is right-to-left. Default if unanswered: one language, en (what every shipped app does today).",
+            "resolves": "variables.languages",
+            "default_if_unanswered": "{ default: \"en\", additional: [] } — state it back at the summary checkpoint",
+            "why": "Language scope decides the URL strategy, the root layout (<html lang> without losing SSG), the CM language set /provision-sitecoreai creates and every per-locale gate after it. Asked late it becomes a migration: routing.ts, sites, dictionary and content versions all change."
+          },
+          {
+            "q": "SEARCH (only if the spec asks for search, facets or typeahead) — which SitecoreAI search source backs it? (A) CONTENT source: indexes items of chosen templates, refreshed by a reindex. (B) SITE source: indexes the published pages of a site. (C) PUSH source: documents you push through the Ingestion API, kept fresh by an Edge OnUpdate webhook and replayed after every reindex. Source setup is UI-only, and whether search is rolled out on the target environment must be confirmed in the UI first.",
+            "resolves": "variables.search",
+            "ask_when": "the spec or the operator names search, facets, typeahead or autocomplete",
+            "default_if_unanswered": "none when search is not in scope; when it IS in scope, there is no default — the source type changes the freshness model",
+            "why": "The source type decides freshness (reindex cadence vs webhook → push + replay), where the index lives, and which operator-only UI steps provisioning carries."
+          },
+          {
+            "q": "SDK LINE (only if the operator asks for marketer-composed / low-code components) — (A) STABLE (default): code components only, @latest. (B) BETA.ATOMS: Content SDK Atoms on the 3.0.0-beta.atoms stamp — a pre-GA DOWNGRADE from 2.4.0 (no 2.3/2.4 features, no OSR fixes), exact pins, inline editing inside atoms unverified. Incompatible with PUBLISH FRESHNESS = OSR: choose one.",
+            "resolves": "variables.sdk_line",
+            "ask_when": "the operator asks for marketer-composed, low-code or Design Studio-built components",
+            "default_if_unanswered": "stable",
+            "conflict": "beta.atoms together with variables.freshness == osr is a HARD ask: the operator picks one",
+            "why": "The beta stamp is the irreversible half: it is a different scaffold and a downgrade, so it cannot be a migration tranche later."
+          }
+        ]
+      },
+      "complexity_triggers": {
+        "sdk_surfaces": {
+          "threshold": 3,
+          "action": "phase the spec — one surface per phase in § 12a Execution tranches, each closed by its own probe or real-tenant smoke",
+          "never": "split into several specs by default (three-leg shippability test required)"
+        }
+      },
+      "finding": "dials declared HERE are what make the M1 scope dial pack-filtered (plan Finding D): content_authoring is DEFINED as \"runs iff content-sdk\" and survives today only because `auto` defers evaluation.",
+      "skills": [
+        {
+          "skill": "setup-scaffold",
+          "load": "mandatory_when",
+          "when": "before the second discovery cluster",
+          "why": "The scaffold decision tree names trade-offs a spec for this platform cannot leave unspecified — use what it surfaces as the BASIS for discovery questions, not as an afterthought."
+        },
+        {
+          "skill": "setup-content-sdk",
+          "load": "mandatory_when",
+          "when": "the deployable baseline is being scaffolded",
+          "why": "Carries the canonical command; run it LITERALLY (rule 50-scaffold) — never hand-write package.json / next.config.*."
+        }
+      ]
+    },
+    "ship": {
+      "hooks": {
+        "ship.pre_commit": [
+          {
+            "step": "Content SDK close-out — ser pull the content-model items, deploy the editing host on the PREVIEW context, verify the git link and deployment freshness, accept the generated maps",
+            "body": "platform/content-sdk/stages/ship-close-out.md",
+            "order": "before the git commit",
+            "records": "its own stage_history entry (stage: content_sdk_closeout, agent: 13-devops-engineer)"
+          }
+        ]
+      },
+      "ships": "CODE ONLY, against the PREVIEW context — /ship does NOT publish. Publishing, the LIVE-context redeploy, the pull of authored content items and the media gate all belong to /publish, which runs after the content phase.",
+      "additions": {
+        "ship_report_sections": [
+          {
+            "heading": "## Unverifiable until /publish",
+            "why": "Everything /ship verified, it verified against PREVIEW. Preview and LIVE Edge do not resolve identically, so a class of claims is STRUCTURALLY unverifiable here (rule 85): route-path form, media resolution, and cache/tag semantics. One line each naming the claim and what will verify it — NEVER folded into a passing test count.",
+            "evidence": "A run went live with 4 of 21 internal links 404-ing, every one of them green on preview."
+          }
+        ]
+      },
+      "finding": "this is the first hook step delivered as a BODY FILE rather than JSON steps. At ~48 lines of dense, evidence-carrying prose, encoding it as JSON fields would have cost more than it bought. The contract already had the shape (`overrides` uses file paths); this just applies it to a hook.",
+      "constraints": [
+        {
+          "id": "ser-endpoint-and-scope",
+          "text": "Every `dotnet sitecore ser` op on a shared-CM repo needs BOTH `-n <endpoint>` AND `-i \"Project.<Brand>\"`. They guard different failures and neither implies the other: `-i` keeps you off the sibling brands; `-n` keeps you off the wrong ESTATE. The CLI default is NOT safe — `cm/.sitecore/user.json` is gitignored, so its `defaultEndpoint` is whatever the last `cloud login` wrote and is invisible in a diff.",
+          "corollary": "Measured 2026-09-26: `defaultEndpoint: \"default\"` resolved to another org's CM than the one the run targeted. A bare `ser pull` applied 26 changes from the wrong tenant and reported \"Discovered 26 changes … Changes have been applied\". Nothing failed; it was caught only because ~150 items just created were ABSENT from the result. Recovery: `git checkout` the serialized tree, delete any untracked folder the pull created, re-pull with `-n`, and verify against a count predicted in advance.",
+          "source": "a prior run, 2026-09-26: the CLI default endpoint"
+        },
+        {
+          "id": "sitecore-cli-local-tool",
+          "text": "Invoke the Sitecore CLI as the project-LOCAL tool — `dotnet tool run sitecore …` from the CM folder, which can only resolve the local tool manifest. Wherever a contract writes `dotnet sitecore …` for brevity, run it this way. A global `sitecore.cli` install shadows the pinned local tool and its plugins.",
+          "corollary": "Measured 2026-09-29 on a clone run: a global sitecore.cli 5.2.109 could not load the Serialization/Publishing plugins, so `ser pull` failed and cm/ drifted from the tenant on one template until the run switched to `dotnet tool run sitecore`. A stray plugin bump in cm/sitecore.json made from the global tool had to be reverted too."
+        },
+        {
+          "id": "search-push-key",
+          "applies_when": "variables.search == push",
+          "text": "SITECORE_SEARCH_PUSH_APIKEY goes on ALL THREE Vercel targets and is never NEXT_PUBLIC_*. The operator creates the key in the UI and puts it in .env (rule 20). \"Search live result\" belongs under Unverifiable until /publish."
+        },
+        {
+          "id": "served-html-production-proof",
+          "text": "Cache Components apps only (`cacheComponents: true`, or variables.freshness == osr): as soon as the merge to main produces the production deployment, run the served-HTML guard (test axis `served-html-preview-proof`, same paths) against THAT deployment's URL — a git-linked project assigns it to the production domain on its own, so run it at once; with auto-assignment off, run it before promoting — and again in /publish before any promote. Exit 1 = keep or restore the previous production deployment (`vercel promote <previous-deployment-url> --scope <team>`; on Hobby `vercel rollback` reaches only the immediately previous one) and report a [BLOCKER]. A passing Preview does not prove the production build: they are separate builds with separate env.",
+          "why": "Measured 2026-10-15: the incident deployment went straight to the production domain on merge, and nothing ran against it until the operator saw broken pages. The guard against the production deployment URL is the last point at which it is still cheap."
+        },
+        {
+          "id": "atoms-mms-host",
+          "applies_when": "variables.sdk_line == beta.atoms",
+          "text": "Assert SITECORE_EDGE_PLATFORM_HOSTNAME is set (or deliberately unset) on every target: the MMS fetch ignores sitecore.config edgeUrl and NEXT_PUBLIC_*. Assert the delivery runtime can load @tailwindcss/node (unverified on Vercel / the editing host)."
+        }
+      ]
+    },
+    "code-review": {
+      "skills": [
+        {
+          "skill": "content-sdk-{router}-router-editing-safe-rendering",
+          "load": "mandatory_when",
+          "when": "reviewing any component",
+          "why": "Verify every component renders safely under editor/preview — App Router uses draftMode() + getPreview/getDesignLibraryData from searchParams; Pages Router uses context.preview + client.getPreview(context.previewData).",
+          "severity": "MAJOR — CRITICAL when the component would crash inside the editor"
+        },
+        {
+          "skill": "content-sdk-{router}-router-component-registration",
+          "load": "mandatory_when",
+          "when": "any new component file is in the diff",
+          "why": "Every new component file needs a matching entry in the component map (Server vs Client map by the componentType annotation).",
+          "severity": "MAJOR when registration is missing"
+        },
+        {
+          "skill": "content-sdk-component-review",
+          "load": "mandatory_when",
+          "when": "the diff adds or changes a component, rendering, template, datasource or serialization module",
+          "why": "One review pass per component, a verdict per axis (authorability, editing safety, naming, variants, data strategy, scoping, list wiring, template integrity, serialization, comments, cross-cutting) with evidence; any P0/P1 FAIL or an UNKNOWN on a mandatory axis blocks the delivery loop. It bundles the authorability, schema, comment-density and base-chain scripts (the repo audits are wrappers around them) and routes serialization findings to sitecoreai-serialization.",
+          "severity": "per axis: MAJOR on a P1 FAIL, CRITICAL on a P0 FAIL"
+        }
+      ]
+    },
+    "document": {
+      "skills": [
+        {
+          "skill": "setup-content-sdk",
+          "load": "mandatory_when",
+          "when": "writing the architecture doc",
+          "why": "The \"if you are rebuilding this from scratch\" reference. Link it by NAME — never copy its body into the doc."
+        }
+      ],
+      "additions": {
+        "readme_sections": [
+          "tech stack — name the SDK package with its version from package.json, and cite the scaffold command actually used (recorded in the scaffold ADR)"
+        ],
+        "architecture_doc_sections": [
+          "the chosen architecture variant (App Router / Pages Router), per the router-family skills"
+        ],
+        "decisions_doc_groupings": [
+          "a \"Sitecore\" theme grouping for the platform-relevant ADRs — scaffold choice, architecture variant, router choice"
+        ]
+      }
+    },
+    "author-content": {
+      "constraints": [
+        {
+          "id": "ser-endpoint-and-scope",
+          "text": "Every `dotnet sitecore ser` op on a shared-CM repo needs BOTH `-n <endpoint>` AND `-i \"Project.<Brand>\"`. They guard different failures and neither implies the other: `-i` keeps you off the sibling brands; `-n` keeps you off the wrong ESTATE. The CLI default is NOT safe — `cm/.sitecore/user.json` is gitignored, so its `defaultEndpoint` is whatever the last `cloud login` wrote and is invisible in a diff.",
+          "corollary": "Measured 2026-09-26: `defaultEndpoint: \"default\"` resolved to another org's CM than the one the run targeted. A bare `ser pull` applied 26 changes from the wrong tenant and reported \"Discovered 26 changes … Changes have been applied\". Nothing failed; it was caught only because ~150 items just created were ABSENT from the result. Recovery: `git checkout` the serialized tree, delete any untracked folder the pull created, re-pull with `-n`, and verify against a count predicted in advance.",
+          "source": "a prior run, 2026-09-26: the CLI default endpoint"
+        },
+        {
+          "id": "sitecore-cli-local-tool",
+          "text": "Invoke the Sitecore CLI as the project-LOCAL tool — `dotnet tool run sitecore …` from the CM folder, which can only resolve the local tool manifest. Wherever a contract writes `dotnet sitecore …` for brevity, run it this way. A global `sitecore.cli` install shadows the pinned local tool and its plugins.",
+          "corollary": "Measured 2026-09-29 on a clone run: a global sitecore.cli 5.2.109 could not load the Serialization/Publishing plugins, so `ser pull` failed and cm/ drifted from the tenant on one template until the run switched to `dotnet tool run sitecore`. A stray plugin bump in cm/sitecore.json made from the global tool had to be reverted too."
+        },
+        {
+          "id": "layout-lint-after-composition",
+          "text": "After composing or changing a page that uses Container, splitters or a slot component, run `node .claude/skills/content-sdk-layout-composition/scripts/lint-layout.mjs --site <site> --route <route> --env-file <head-app>/.env.local --fit <head-app>/src/lib/layout/component-fit.json` against PREVIEW. A FAIL (structure deeper than the ceiling, a sized component inside a column, a section or chrome component in a column, a wide component below 6/12) is fixed before the page is handed over; WARNs (not 12 on Mobile, orphans, columns under 240 px, unstyled Row Splitter) are answered in the content notes.",
+          "corollary": "Pages gives a NEW column col-6 at Mobile and nothing reports it; the lint is the only check that sees authored widths per breakpoint (field test 2026-10-15: an operator-built page carried 11 such warnings, two agent-built pages following the policy carried 0)."
+        }
+      ]
+    }
+  },
+  "dials": {
+    "content_authoring": "auto",
+    "imagery": "mood",
+    "why": "Both are platform-owned dials (README § Scope-dial ownership). Declaring them here is what makes the M1 scope dial pack-filtered: content_authoring is DEFINED as \"runs iff content-sdk\" and survives today only because `auto` defers evaluation (plan Finding D)."
+  },
+  "repo_topology": {
+    "default": "repo-per-deployable",
+    "values": [
+      "repo-per-deployable",
+      "monorepo"
+    ],
+    "operator_selectable": true,
+    "resolved_at": "intake",
+    "records": "repo_topology",
+    "why": "BOTH shapes are correct SitecoreAI, and which one fits is an operator call about how they want to hold the code — not a framework default. A (repo per deployable) keeps the CM and each head app independently clonable, releasable and permissioned; B (monorepo) keeps one lineage so a content-model change and the component that consumes it land in one commit, and is the shape Sitecore's own xmcloud-starter-js ships. Confirmed by the operator 2026-08-11 as a wanted way of working, not a legacy artifact.",
+    "history": "Closes BACKLOG item 22. `templates/authoring-baseline/` has SHIPPED in B shape all along (`authoring/` + `sites/.gitkeep` + one root descriptor) and the commands transformed it into A, so B was buildable and unreachable: this key existed, both packs declared the string `repo-per-deployable`, and no stage could ever resolve a second value — rule 88's exact shape, declared for a year with no consumer.",
+    "variants": {
+      "repo-per-deployable": {
+        "workspace": {
+          "layout": "products/head-application/<project-slug>/<head-app-slug>",
+          "why": "One Deploy project = one CM. A head app is a SIBLING of cm/, never directly under products/ and never in site/ (product-workspace.md § 1b-i)."
+        },
+        "repo_setup": {
+          "topology": {
+            "rule": "ONE REPO PER DEPLOYABLE. The <project_slug>/ project folder is an UNTRACKED CONTAINER (an untracked container, not a git repo); each deployable inside it is its own repo so it maps 1:1 to a SitecoreAI Deploy deployable.",
+            "intake_sets_up": "only the head-app repo — that is where the spec + planning land. The cm/ repo is set up where cm/ is created (/discover-sitecoreai or /provision-sitecoreai, NEW CM only).",
+            "git_root_check": "run `git rev-parse --show-toplevel` from INSIDE the head-app folder, never the container — it MUST resolve to the head-app folder itself",
+            "branch_naming": "prd-NNN / frd-NNN / bug-NNN, UNPREFIXED — separate repos cannot collide, so a head-app prefix would buy nothing and break every branch pattern downstream."
+          },
+          "deployable_baseline": {
+            "what": "scaffold + xmcloud.build.json + a values-free .env.example + .gitignore, committed and pushed to main",
+            "xmcloud_build_json": {
+              "target": "<head-app repo root>/xmcloud.build.json",
+              "template": ".agent/packs/platform/content-sdk/templates/xmcloud-build/editing-host.xmcloud.build.json",
+              "how": "COPY the template and replace <EDITING_HOST_NAME>. Do not hand-write it from prose and do not restate any of its values in a command, an agent file or a runbook — the blueprint is the one source of truth and a stray literal fails __tests__/xmcloud-build-blueprint.test.mjs.",
+              "cm_descriptor": "The cm/ repo carries its OWN descriptor, `renderingHosts: {}` from templates/xmcloud-build/cm-only.xmcloud.build.json. Two files, one entry between them (blueprint README § 3 invariant 3)."
+            }
+          }
+        }
+      },
+      "monorepo": {
+        "workspace": {
+          "layout": "products/head-application/<project-slug>/cm/sites/<head-app-slug>",
+          "why": "One repo for the whole project: cm/ IS the git repo and holds authoring/ beside sites/<head-app-slug>/. The head app is nested INSIDE the CM solution rather than a sibling of it — this is the shape templates/authoring-baseline/ ships in, and the shape Sitecore/xmcloud-starter-js uses. `cm_code_base` still points at cm/, identically to topology A."
+        },
+        "repo_setup": {
+          "topology": {
+            "rule": "ONE REPO FOR THE PROJECT. `cm/` is the git repo and spans everything: `authoring/` (the CM solution), `sites/<head-app-slug>/` (every head app on this CM) and ONE root `xmcloud.build.json` carrying both `authoringPath` and `renderingHosts`. The `<project_slug>/` folder above it stays an untracked container, exactly as in topology A.",
+            "intake_sets_up": "the monorepo at cm/ — NEW CM only. On an EXISTING CM the repo is the OPERATOR'S and already exists: scaffold the head app into its `sites/`, commit there, and never `git init`. See existing_cm below.",
+            "git_root_check": "run `git rev-parse --show-toplevel` from INSIDE the head-app folder; it MUST resolve to the monorepo root (`<project_root>/cm`, or the operator's CM path), NOT to the head-app folder. Resolving to the head app means a nested repo was created by mistake and the CM half is silently outside version control.",
+            "branch_naming": "<head-app-slug>/prd-NNN — PREFIXED. N head apps share one repo, so a second head app's `prd-001` would collide with the first's. The prefix is unconditional within this topology rather than applied once a second head app appears: a rule that depends on how many head apps exist today changes meaning the day someone adds one.",
+            "existing_cm": "Supported. The head app is scaffolded into the operator's existing repo under `sites/<head-app-slug>/` and committed on a prefixed branch. THREE things differ from the NEW-CM path and each must be honoured: (1) no `git init` and no remote question — the repo and its remote exist; (2) the root `xmcloud.build.json` is EDITED IN PLACE (add one `renderingHosts.<key>` entry) rather than copied from the template, because the operator's file carries their own postActions/scsModules that a copy would destroy; (3) the deployable baseline is a COMMIT INTO A REPO THE FRAMEWORK DID NOT CREATE — say so at the operator checkpoint before making it, and never force-push or rewrite their history.",
+            "supersedes": "nothing — this is the alternative to repo-per-deployable, not its successor. Both are current."
+          },
+          "deployable_baseline": {
+            "what": "the CM baseline (authoring/ + the root xmcloud.build.json, from templates/authoring-baseline/) PLUS the scaffolded head app at sites/<head-app-slug>/ + a values-free .env.example + .gitignore — one repo, committed and pushed to main together. On an EXISTING CM only the head app half is added.",
+            "why": "main must be BUILDABLE from the moment the repo exists, because a git-linked editing host builds main and a feature branch is not a deploy source. In this topology BOTH environments — the CM env and the editing host — link to this one repo and read this one descriptor, so an unbuildable main deadlocks both.",
+            "xmcloud_build_json": {
+              "target": "<monorepo root>/xmcloud.build.json  (= <project_root>/cm/xmcloud.build.json, or the operator's CM root)",
+              "template": ".agent/packs/platform/content-sdk/templates/authoring-baseline/xmcloud.build.json",
+              "how": "NEW CM: keep the authoring baseline's file AS SHIPPED — it is already topology B — and token-replace <EDITING_HOST_NAME> / <SITE_NAME> / <SITE_COLLECTION_NAME>. Do NOT overwrite it with cm-only.xmcloud.build.json: that overwrite IS the topology A transform. EXISTING CM: edit the operator's file in place, adding one renderingHosts entry with the same property set. Either way `renderingHosts.<key>.path` is `./sites/<SITE_NAME>` and `authoringPath` stays `./authoring`.",
+              "one_descriptor": "The head app gets NO xmcloud.build.json of its own. One descriptor per REPO, and here there is one repo — two files both declaring the same renderingHosts key is what blueprint README § 3 invariant 3 forbids. A stray editing-host descriptor at sites/<head-app-slug>/ is a defect, not a harmless duplicate."
+            }
+          }
+        }
+      }
+    }
+  },
+  "owns": {
+    "stages": [
+      {
+        "command": "discover-sitecoreai",
+        "file": "platform/content-sdk/stages/discover-sitecoreai.md",
+        "anchor": "between /create-prd and /architect",
+        "agent": "13-devops-engineer"
+      },
+      {
+        "command": "provision-sitecoreai",
+        "file": "platform/content-sdk/stages/provision-sitecoreai.md",
+        "anchor": "between /task-breakdown and /implement",
+        "agent": "13-devops-engineer",
+        "carries_gate": "go_live"
+      },
+      {
+        "command": "discover-components",
+        "file": "platform/content-sdk/stages/discover-components.md",
+        "anchor": "first step of the content phase"
+      },
+      {
+        "command": "author-content",
+        "file": "platform/content-sdk/stages/author-content.md",
+        "anchor": "content phase",
+        "agent": "14-content-author"
+      },
+      {
+        "command": "test-content",
+        "file": "platform/content-sdk/stages/test-content.md",
+        "anchor": "content phase close",
+        "agent": "07-qa-specialist",
+        "carries_gate": "final"
+      },
+      {
+        "command": "publish",
+        "file": "platform/content-sdk/stages/publish.md",
+        "anchor": "FINAL live step",
+        "agent": "13-devops-engineer",
+        "carries_gate": "go_live"
+      },
+      {
+        "command": "doctor",
+        "file": "platform/content-sdk/stages/doctor.md",
+        "anchor": "on demand: read-only health check, never a pipeline step",
+        "agent": "13-devops-engineer"
+      }
+    ],
+    "agents": [
+      {
+        "role_id": "13",
+        "file": "platform/content-sdk/agents/13-devops-engineer.md"
+      },
+      {
+        "role_id": "14",
+        "file": "platform/content-sdk/agents/14-content-author.md"
+      }
+    ],
+    "templates": [
+      {
+        "path": "platform/content-sdk/templates/authoring-baseline/",
+        "files": 19,
+        "note": "The CM (authoring) half of a Content SDK project. Vendored rather than scaffolded because there is NO create-* CLI for the SCS solution — unlike the head app. Its pinned SCS/XMCloud/node versions are FROZEN and will drift; bump them deliberately. Moved into the pack 2026-08-23: every functional reference to it already lived inside this pack (agent 13, both provisioning stages, this file), which is what made the relocation obviously correct rather than a judgement call."
+      }
+    ],
+    "note": "A pack that owns stages is tier 2 of the pack tiers — its commands and agents live with it. `phase_toggle` below is what deactivates the whole content phase, which is how /test resolves to the final gate without naming a platform.",
+    "phase_toggle": {
+      "dial": "content_authoring",
+      "off_value": "no",
+      "deactivates": [
+        "discover-components",
+        "author-content",
+        "test-content",
+        "publish"
+      ]
+    }
+  },
+  "manifest_fields": {
+    "new": [
+      "variables.router",
+      "variables.list_delivery",
+      "variables.repo_topology",
+      "variables.authoring_mode",
+      "variables.freshness",
+      "variables.osr_sdk_line",
+      "variables.osr_cli_version",
+      "repo_topology",
+      "authoring_mode",
+      "variables.languages",
+      "variables.search",
+      "variables.sdk_line"
+    ],
+    "note": "variables.* keys are defined by THIS pack; core cannot enumerate them, so they are declared here and land under the manifest variables block. `list_delivery` was resolved by a question from 2026-08-28 and declared nowhere until 2026-08-31, which is exactly what clone-field-contract.test.mjs exists to catch. `authoring_mode` was added 2026-09-01 with its question, its three readers and its manifest field in the same change — the inverse failure, where the decision had consumers but neither a question nor a field."
+  },
+  "gate_presentation_checks": {
+    "checks": "route-reachability crawl · destination-distinctness · the robots gate · the live link-crawl (rule 85)",
+    "why": "These four are public-website checks and only this platform can run them. They lived in the marketer pack's flat machine_half until 2026-08-27, which shipped them to Marketplace and to `platform:none` where they cannot be performed at all. The robots gate is seeded by `/provision-sitecoreai` § 7e; the live link-crawl is rule `85` preview-vs-live divergence. Both are real and both are this platform's."
+  },
+  "pack_level_scope": {
+    "repo_topology": [
+      "create-prd",
+      "create-frd",
+      "create-bug",
+      "implement",
+      "ship",
+      "discover-sitecoreai",
+      "provision-sitecoreai",
+      "publish"
+    ],
+    "repo_setup": [
+      "create-prd",
+      "create-frd",
+      "create-bug",
+      "implement",
+      "ship",
+      "discover-sitecoreai",
+      "provision-sitecoreai",
+      "publish"
+    ]
+  },
+  "pack_level_scope_reason": "MEASURED, not reasoned (2026-09-04). The rendered-brief baseline showed the topology block emitted into all 19 core stages — /research and /probe included — so every non-default topology variant differed from its default by the same constant 33 lines. The reader list comes from grepping the stage bodies for `repo_setup` / `repo_topology`, NOT from judgement: a first draft picked six stages by reasoning and would have dropped `publish`, which reads `repo_setup.topology` at its step 150 to decide the Vercel Root Directory. `architect`, `code-review` and `test` mention it only to PASS `--topology` on the resolve line; they need the flag, not the block. `workspace` is deliberately NOT scoped — it carries the container path, which nearly every stage needs. Absent scope means every stage, preserving the 2026-08-24 fix where these keys were structurally absent from every brief and their citations resolved to nothing."
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "neutral-model.schema.json",
+  "title": "Neutral content model (/migrate)",
+  "description": "Source FACTS about a site, from any adapter (scrape, sitecore-xm-xp, …), each tagged with provenance. Optimisation never lives here — the target mapping is a separate artifact (brief Decision 21). Editor support only; `.agent/scripts/neutral-model.mjs --validate` is the gate.",
+  "type": "object",
+  "required": ["neutral_model_version", "source", "channels", "pages"],
+  "properties": {
+    "neutral_model_version": { "const": 1 },
+    "source": {
+      "type": "object",
+      "required": ["system", "rung", "entry"],
+      "properties": {
+        "system": { "type": "string", "description": "scrape | sitecore-xm-xp | …" },
+        "variant": { "type": ["string", "null"], "description": "mvc | headless (sitecore-xm-xp)" },
+        "xdb": { "type": ["boolean", "null"] },
+        "rung": { "enum": [0, 1, 2, 3], "description": "access ladder: 0 code only (serialization + code, no running site; serialization | repo channels only), 1 scrape, 2 + backend, 3 + code" },
+        "entry": { "type": ["string", "null"] }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["scrape", "serialization", "item-service", "authoring-api", "db-restore", "repo"] },
+          "captured_at": { "type": ["string", "null"] },
+          "ref": { "type": ["string", "null"], "description": "file or endpoint the facts came from" }
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "url", "provenance"],
+        "properties": {
+          "id": { "type": "string" },
+          "url": { "type": "string" },
+          "item_id": { "type": ["string", "null"], "description": "backend item, when the URL↔item join resolved" },
+          "title": { "type": ["string", "null"] },
+          "language": { "type": ["string", "null"] },
+          "sections": { "type": "array", "description": "scrape: verbatim text blocks grouped under headings" },
+          "composition": { "type": "array", "description": "backend: rendering × placeholder × datasource, from __Final Renderings" },
+          "provenance": { "$ref": "#/definitions/provenance" }
+        }
+      }
+    },
+    "content_types": { "type": "array", "description": "templates with fields, bases, standard values (backend)" },
+    "items": { "type": "array", "description": "content items, every language and version (backend)" },
+    "renderings": { "type": "array" },
+    "media": { "type": "array" },
+    "redirects": { "type": "array" },
+    "customizations": { "type": "array", "description": "portability inventory entries (rung 3)" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "detail"],
+        "properties": {
+          "kind": { "enum": ["drift", "gap", "unsupported", "conflict"] },
+          "detail": { "type": "string" },
+          "refs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "id_map": { "type": "object", "description": "source id → target id, filled by the recreation; rewrites internal links" }
+  },
+  "definitions": {
+    "provenance": {
+      "type": "object",
+      "required": ["channel", "tier"],
+      "properties": {
+        "channel": { "type": "string" },
+        "tier": { "enum": ["inferred", "extracted"] }
+      }
+    }
+  }
+}

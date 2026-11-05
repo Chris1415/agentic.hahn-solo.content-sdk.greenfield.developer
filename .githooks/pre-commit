@@ -1,0 +1,84 @@
+#!/bin/sh
+# pre-commit — framework integrity gate for this framework.
+#
+# Runs the cross-reference validator before every commit. Blocks the commit if
+# any ERROR is found: dangling flows.json/depends_on references, agent-frontmatter
+# contract violations, or a stale/missing .claude|.cursor mirror.
+#
+# The hook is NON-MUTATING — it never edits or stages files. When a mirror is
+# stale it tells you the sync command to run, then you re-stage and re-commit.
+#
+# Enabled via: git config core.hooksPath .githooks   (tracked, repo-relative).
+# Bypass once with: git commit --no-verify
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node not found on PATH — skipping framework validation." >&2
+  exit 0
+fi
+
+node .agent/scripts/validate-framework.mjs --quiet
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  echo "" >&2
+  echo "pre-commit: framework validation FAILED — commit blocked." >&2
+  echo "Run 'node .agent/scripts/validate-framework.mjs' for the full report." >&2
+  echo "If a mirror is stale, regenerate and re-stage:" >&2
+  echo "  bash .agent/scripts/sync-agents.sh && bash .agent/scripts/sync-wrappers.sh && git add -A" >&2
+  exit 1
+fi
+
+# Framework suites — BLOCKING, but only when the code they test is staged.
+#
+# WHY (2026-09-02). The repo carried 27 suites and NOTHING RAN THEM. Each was
+# invoked by hand by whoever last touched its subject, so a red suite was
+# invisible: `clone-field-contract.test.mjs` sat RED for three days and was
+# found only because someone happened to run it while working nearby. Same week,
+# same pattern: five of nine pack briefs never resolved, and an export
+# deleted every mirror and only WARNed. A check that exists is not a check that
+# runs — rule `88`.
+#
+# SCOPED TWICE, AND BOTH CAPS ARE ANNOUNCED. Measured 2026-09-02: the full set is
+# 334s, of which `export-flow` alone is ~316s (it generates seven flow repos and
+# validates inside each). A five-and-a-half-minute pre-commit gets disabled by the
+# third day, and a disabled gate is exactly what this is here to prevent. So:
+#   1. it fires only when `.agent/scripts/` or `.agent/packs/` is staged, and
+#   2. it runs `--fast`, which skips the slow suite — 18s instead of 334s.
+# Both are caps, so the hook SAYS it fired and `--fast` NAMES what it dropped
+# (rule `88`): a silent cap reads as "everything was checked" when it wasn't.
+#
+# Run the whole set any time with:  node .agent/scripts/run-tests.mjs
+# Skip once (slow machine, WIP):    SKIP_FRAMEWORK_TESTS=1 git commit …
+# The suites exist only in the source repo; a public export ships none, so the block is skipped there.
+if [ -z "$SKIP_FRAMEWORK_TESTS" ] && [ -f .agent/scripts/run-tests.mjs ] &&
+   git diff --cached --name-only | grep -qE '^\.agent/(scripts|packs)/'; then
+  echo "pre-commit: .agent/scripts or .agent/packs staged — running framework suites (--fast, ~18s)…" >&2
+  node .agent/scripts/run-tests.mjs --fast --quiet
+  if [ "$?" -ne 0 ]; then
+    echo "" >&2
+    echo "pre-commit: framework suites FAILED — commit blocked." >&2
+    echo "Run 'node .agent/scripts/run-tests.mjs' for the full report." >&2
+    echo "Bypass once with SKIP_FRAMEWORK_TESTS=1 (and say so in the commit body)." >&2
+    exit 1
+  fi
+fi
+
+# Skill mirror check — ADVISORY, never blocks.
+#
+# Skills are edited local-first under .claude/skills/ and mirrored by hand into
+# the canonical marketplace repo. With the lock file gone, this is the only
+# thing standing between a local edit and a stale public marketplace. It warns
+# rather than blocks so WIP skill edits can still be committed; the mirror is
+# expected before the work is called done, not before every commit.
+# It already exits 0 when the canonical clone is absent, so other machines are
+# unaffected.
+# The script is maintainer-only and a public export does not carry it.
+if [ -f .agent/scripts/check-skill-drift.mjs ]; then
+  node .agent/scripts/check-skill-drift.mjs --quiet || {
+    echo "" >&2
+    echo "pre-commit: skill drift detected (WARNING — commit NOT blocked)." >&2
+    echo "Mirror finished skill bodies into the canonical repo before calling the work done." >&2
+  }
+fi
+
+exit 0

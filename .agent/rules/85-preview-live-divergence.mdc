@@ -1,0 +1,106 @@
+---
+description: Preview and live Edge are two runtimes with different contracts — route-path form, media resolution and cache/tag semantics all diverge, and preview is the PERMISSIVE one. Every pipeline gate verifies against preview, so a whole defect class is structurally invisible until /publish. Where a contract can differ, get one assertion against the strict (live) surface.
+alwaysApply: true
+---
+
+# Preview ≠ Live — the permissive surface is the one you develop against
+
+## The rule
+
+Preview and live Edge are **two runtimes with two contracts**, and preview is the **permissive**
+one. It is also the only surface the pipeline ever looks at: local dev, `/test`, `/test-content`
+and the `/ship` deploy are **all** on the lenient side by design (rule `71`, preview-first). Any
+contract the two contexts do not share is therefore **structurally invisible until `/publish`** —
+not under-tested, *unobservable*.
+
+Two consequences, both load-bearing:
+
+1. **A check that passes against preview proves nothing about live** for anything in a divergence
+   class. Green gates are not evidence here; they are evidence about the lenient runtime.
+2. **Where a contract can differ, get ONE assertion against the strict surface** — even if it is
+   environment-bound, manual, and run once by hand. One live observation beats any number of
+   preview-side passes.
+
+## Known divergence classes — all measured, list is OPEN
+
+| Class | Preview (permissive) | Live (strict) | The trap |
+|---|---|---|---|
+| **Route-path form** | resolves the slugified path **and** the percent-encoded one | `site.routes` index carries **only the slugified** path (`/stories/Istanbul-In-Winter`) | `encodeURIComponent(itemName)` in a path segment works in *all* development and 404s for real visitors |
+| **Media resolution** | media renders **without a publish** (resolves from the CM) | media requires the publish | "it renders" during authoring says nothing about go-live |
+| **Cache / tag semantics** | single-process local `next start`: ISR windows and `revalidateTag` are immediate and total | multi-instance deployment: per-instance caches, alias + CDN layers | a revalidation proven locally is not proven in production |
+| **PPR resume** (Cache Components) | local `next start` renders each page in one pass | Vercel serves the cached shell, then a separate resume invocation fills the postponed holes | an empty resume serves every page cut at the shell, HTTP 200, while every local gate is green (live 2026-10-15). Strict-surface assertion: `check-served-html.mjs` on a Vercel Preview (content-sdk pack test axis `served-html-preview-proof`) |
+
+**The list is open — a divergence is *any* contract the two contexts do not share.** Routing,
+media, cache, auth scoping, item resolution, host/header handling. When you meet a plausible
+difference that is not listed, treat it as a divergence until one live assertion says otherwise
+(rule `70` — that is a probe, not a build task), and add the class here once measured.
+
+⚠️ Skills that state "media renders only AFTER publish" flatly (`sitecoreai-graphql-schemas`
+and the imagery recipe) are describing the **live** context only. Read them as live-scoped, not
+universal.
+
+## The evidence (a prior run, 2026-08-11)
+
+Four links were dead for real visitors the moment the site went live — `/destinations/Hong%20Kong`,
+`/stories/Istanbul-In-Winter` and two siblings — while `/destinations/Hong-Kong` returned 200.
+Seven call sites had each interpolated `encodeURIComponent(itemName)` into a path. Nothing caught
+it: 658 passing tests, four review cycles, a full `/test` pass and a `/ship` deploy, all against
+preview, which resolves both forms.
+
+The sharpest part: `scripts/smoke-prod-routes.mjs` — a *production-build* route smoke written
+precisely to catch what dev hides — **asserted `/destinations/Hong%20Kong` and passed for days**.
+It ran `next start` against the preview context, so it did not merely miss the defect; it **pinned
+the broken URL form as the expected value**. A check on the lenient side can encode the bug.
+
+## What this changes in practice
+
+- **Name the environment in every route/URL assertion** — see `30-tdd.mdc` § "Environment-scoped
+  assertions". A test's verdict is scoped to the runtime it ran in.
+- **Never treat a preview-side pass as go-live coverage** for a divergence class. Say what it
+  proves (`no route 500s under a real production build`) and what it does not (`live-Edge routing`).
+- **Budget the live assertion up front.** It belongs in the task breakdown's § 8 as an explicit,
+  environment-bound item — not as a hope that `/publish` will notice.
+- **`/publish` is the first strict-side observation of the whole run.** Its go-live check is not a
+  formality; for these classes it is the only real evidence the run ever produces. Record what it
+  showed.
+
+## Agent application
+
+- **04 Software Architect:** when a design emits URLs from content-derived names, depends on media
+  being resolvable, or leans on cache/tag invalidation, name the divergence in the ADR's
+  consequences and state which surface will prove it.
+- **06 Lead Developer:** every route/URL/media/cache assertion in § 8 names its context. Any
+  contract that differs across contexts gets **one** live-side item, marked environment-bound and
+  manual if that is what it takes.
+- **07 QA Specialist:** reject an assertion that does not name its environment. A preview-side URL
+  check is not coverage for live — call that out in the test report rather than counting it green.
+- **08 Developer:** if you are about to build a URL path segment, resolve a media URL, or rely on
+  revalidation, ask which context you have actually seen it work in. `encodeURIComponent` belongs
+  in **query values**, not path segments built from Sitecore item names.
+- **13 DevOps Engineer:** at `/publish`, verify the divergence-class items on the live surface
+  (routes 200, media 200-not-302) and report them as the run's first strict-side evidence.
+- **00 Team Lead:** a run whose only route/media evidence is preview-side has an **open** gap at the
+  `go_live` gate — surface it, do not let review-clean + test-green read as go-live-safe.
+
+## Cross-references
+
+- `71-delivery-loop.mdc` § "Preview-first / publish-last" — *why* the whole pipeline sits on the
+  lenient side; this rule is the cost of that choice and how to pay it.
+- `30-tdd.mdc` § "Environment-scoped assertions" — the test-side clause.
+- `70-probe-and-tranche.mdc` — an unconfirmed cross-context contract is a load-bearing unknown; probe it.
+- `.agent/glossary.md` § "Smoke gate" / § "Preview-first delivery".
+
+## Pitfall index
+
+- "All gates green, so it works live" → every gate ran on the permissive surface; for a divergence
+  class that statement is unsupported.
+- A smoke script that asserts a URL form nobody verified against live → it can pin the defect as
+  expected (that run, above). Assert the form the code *emits*, and prove that form live.
+- "Media renders in Pages, so it will render for visitors" → preview resolves media from the CM;
+  live needs the publish.
+- Revalidation verified against a local `next start` → single process, single cache; a deployment
+  has neither.
+- Discovering a divergence and fixing only the call site → also fix the **seam** that let two
+  emitters diverge (one canonical helper) and add a guard, or it returns.
+- Waiting for `/publish` to reveal the class → that is the live incident, not the check. The point
+  of one early live assertion is that it lands before real visitors do.

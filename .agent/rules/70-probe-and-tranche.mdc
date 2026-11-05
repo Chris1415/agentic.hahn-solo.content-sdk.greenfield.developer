@@ -1,0 +1,91 @@
+---
+description: Structure non-trivial work in tranches; any assumption or unknown a later tranche depends on gets a probe (reality-check) tranche FIRST. A cheap real-world probe beats weeks of building on a wrong assumption.
+alwaysApply: true
+---
+
+# Probe & Tranche — De-risk Before You Build
+
+## The rule
+
+Two disciplines, one habit:
+
+1. **Tranche.** Structure non-trivial work as an ordered sequence of **tranches** — bounded, independently-meaningful slices delivered and verified together — not as a flat task list. (See `.agent/glossary.md` § "Tranche".)
+2. **Probe-first.** When any tranche rests on an **assumption or unknown** that a later tranche depends on, sequence a **probe tranche FIRST** that confirms the assumption against reality before dependent build work commits. (See `.agent/glossary.md` § "Probe".)
+
+The trade is asymmetric: a probe costs hours; building on a wrong assumption costs weeks. When in doubt, add the probe.
+
+**The tranche is where complexity goes.** A work item (PRD / FRD / bug) is a **complete deliverable**; a tranche is the **unit of execution**. When a plan turns out bigger than expected, the answer is more tranches — or a phase boundary grouping them, closed by a probe or a real-tenant smoke — inside the **same** spec. Fragmenting the spec into several half-specs is the exception, not the response to complexity: it requires the three-leg shippability test and a program block so the operator never loses sight of what each piece delivers and how many complete the whole. See `.agent/glossary.md` § "Deliverable vs execution unit" / § "Program".
+
+## What counts as "needs a probe"
+
+Sequence a probe when a plan rests on any of these and the team has NOT already confirmed it against the real thing:
+
+- an **SDK / API request or response shape** you haven't seen on the wire (the `.d.ts` says one thing; the live tenant may differ),
+- a **tenant / environment / data behavior** (does this tenant's Edge endpoint return the field? is the template field SHARED or VERSIONED?),
+- an **external system's runtime behavior** (auth flow, rate limit, webhook payload, redirect-match algorithm),
+- the **fidelity of a migration / scrape / generator** (will the script actually reproduce the source?),
+- a **library / framework version claim** past the knowledge cutoff (did the API move? is the file renamed?).
+
+If the assumption is cheap to be wrong about, skip the probe. The rule targets **load-bearing** uncertainty, not every unknown.
+
+## A probe must exercise the CALL PATH THAT SHIPS, not merely the contract
+
+**Verifying an API contract is not verifying the call path.** A probe that reaches the endpoint by an easier route than the app will, or with a narrower input than the app will send, returns `confirmed` for a claim the shipping code does not satisfy — and it returns it *confidently*, which is worse than no probe.
+
+Two measured instances, one build, both CRITICAL, both green at every gate (a Marketplace build, 2026-09-01/02):
+
+| The probe did | The app does | What shipped |
+|---|---|---|
+| Called the API **out-of-band with a CM bearer token**, which carries tenant scope implicitly | Calls it **portal-brokered**, where `sitecoreContextId` is **optional in the types and required at runtime** | Every real call failed. The SDK contract gate passed (the field is optional) and the probe passed (the token made it unnecessary) — **neither exercised the only path that ships** |
+| Confirmed `pages.context` with **the current page's** id — itself a page | Passes the **owning datasource's** id, generalised from "navigate to the owning item" | A live error page. The probe never covered the generalisation the decision made from it |
+
+So, when planning a probe, state two things explicitly and check they match:
+
+1. **The transport and credential the probe uses vs the one the app uses.** Bearer token vs brokered client, server vs browser, authenticated vs anonymous. Where they differ, the probe verdict covers the *contract* only — say so in the verdict, and open a second probe on the real path or carry the gap into the tranche that closes it.
+2. **The input class the probe sends vs the widest one the app will send.** A probe on one instance of a category does not confirm the category. If the decision generalises past what was probed — *"navigate to the owning item"* from a probe that only ever passed a page — the generalisation is **unprobed** and must be labelled as such.
+
+**Record it in the verdict, not just in someone's head.** A `confirmed` verdict carries `path_verified: shipping | contract_only`, and `contract_only` is not a licence to build the dependent tranche unguarded — it is a named residual risk the plan must close, usually by making the first real call early rather than at the end.
+
+**Why this is not covered by "probe the shape".** Both instances above had the *shape* right. What was wrong was the **route to it**: same endpoint, same payload, different caller. A shape probe cannot see that, and the two gates that should have — a types check and an out-of-band call — are exactly the two that passed.
+
+## Two probe modes (one command: `/probe`)
+
+- **knowledge** — a library/version/concept claim → routed to the Research Sidecar (03): source-grounded verification (npm, GitHub releases, `.d.ts`, official docs). No code run.
+- **empirical** — an API/tenant/data/runtime claim → routed to the Developer (08) as a constrained **throwaway spike**: disposable code in a scratch dir, hit the real endpoint/tenant, capture the wire, return a verdict. Never touches product code.
+
+Verdict is **confirmed / refuted / needs-more**.
+
+## Operator confirm at the probe boundary
+
+Probing is **soft** everywhere except one mandatory checkpoint: after a plan's probe tranche(s) run, the operator is **notified of every verdict in the Operator Checkpoint and explicitly confirms whether to move forward** before dependent tranches proceed. A `refuted` verdict is **not auto-fatal**, but moving past it is the operator's explicit call, with three exits surfaced as recommendations:
+
+- **cancel** — killing work on a refuted assumption is a SUCCESS outcome, not a failure ("we have an authoritative answer" is the win condition);
+- **promote / split** — re-scope per `.agent/glossary.md` § "Type promotion";
+- **redesign** — the plan changes to fit what the probe revealed.
+
+## Relationship to existing rules (this is the PROACTIVE generalization)
+
+This rule is the proactive sibling of three reactive / test-time disciplines already in the framework — cross-link, do not duplicate:
+
+- `30-tdd.mdc` — RED-before-GREEN: a *test-time* probe of your own code's contract.
+- Software Architect (04) "wire-level evidence before architectural hypothesis" — a *reactive* probe (something already broke; show the wire before theorizing).
+- The **bug path** RED regression test — a *contained* probe of a single broken behavior.
+
+`70` generalizes all three to: **verify the assumption before you build on it, not after it breaks.**
+
+## Agent application
+
+- **02 Product Manager:** Label every load-bearing assumption in a spec; when one is unverified, recommend a probe tranche in the spec's `## Execution tranches` outline. Cancel/split is a valid spec outcome.
+- **04 Software Architect:** When the architecture rests on unconfirmed external behavior, open the architecture plan with one or more 🔍 probe tranches BEFORE the ADRs that depend on them. Recommend redesign/cancel if a probe refutes.
+- **06 Lead Developer:** § 5 Execution order is tranche-grouped and probe-first. When a tranche depends on an unknown, T001 of that plan is a probe task (`/probe …`). Mark probe tranches with 🔍 in § 0 and § 5.
+- **00 Team Lead:** Run probe tranches first; surface every verdict in the Operator Checkpoint; get explicit operator go/no-go before unlocking dependent tranches.
+- **08 Developer:** When `/implement` reaches a 🔍 probe tranche, run the probe (or the spike it specifies), record the verdict, and STOP for operator confirm before the dependent tranche — do not assume confirmed and continue.
+
+## Pitfall index
+
+- Flat task list with an embedded unknown → regroup into tranches, probe the unknown first.
+- "We'll find out when we build it" on a load-bearing SDK/tenant assumption → that's a probe tranche, not a build task.
+- Probe came back `refuted` and the plan proceeded anyway → STOP; surface to the operator with the three exits.
+- Probe spike code left in the product tree → it's throwaway; it lives in a scratch/probes dir and does not ship.
+- Treating a refuted probe as a failure → it's a success (cheap authoritative answer); cancel/split/redesign accordingly.
+- Scope grew, so the spec got split into "phase 1 of N" and the rest went into prose → **wrong default.** Phase it inside one spec; split only on a passed shippability test, and then write the program block so `STATUS.md` shows `N of M` and `/ship` cannot present a fragment as a finished product.

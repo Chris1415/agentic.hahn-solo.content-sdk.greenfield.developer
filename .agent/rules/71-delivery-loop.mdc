@@ -1,0 +1,256 @@
+---
+description: Build one component at a time through a FRESH {Developer→Code-Reviewer→QA} triad per component (bounded to 5 cycles, fresh slim context each time, orchestrator commits + records at each boundary); code review is ALWAYS per tranche and only the QA leg batches under the `once` cadence; work against preview and defer all publishing to a single final /publish step.
+alwaysApply: true
+---
+
+# Delivery Loop — One Component at a Time, Preview-First
+
+## The rule
+
+Two build-phase disciplines, one habit:
+
+1. **Delivery loop.** Deliver the implementation through `/implement` → `/code-review` → `/test`, iterated until clean. A failing gate loops **back to the Developer (08)**, never forward. The **cadence** is operator-set via `scope_dial.delivery_loop` (see *Cadence dial* below) and moves the **QA leg only**: **`per_component`** (default) tests after **each** component tranche; **`once`** batches the test leg into a single end-of-build pass. **`/code-review` runs per tranche in BOTH cadences.** (See `.agent/glossary.md` § "Delivery loop".)
+2. **Preview-first / publish-last.** All build-and-content work runs against the **preview** surface; publishing is deferred to a single final `/publish` step. (See `.agent/glossary.md` § "Preview-first delivery".)
+
+## Component-vertical decomposition
+
+The task breakdown's § 5 is decomposed **by component first, then additional logic** (building on rule `70-probe-and-tranche.mdc` — always tranche; probe-first when uncertain):
+
+- **One tranche per component** — each a full **vertical slice** carrying *all* that component's items (data layer + component + registration + variants + tests), **not** a horizontal layer split across many components.
+- **Additional-logic tranches** (navigation, theming, routing, app-level wiring) run **after** all component tranches.
+- A single-component bug / small FRD is one tranche. A 🔍 probe tranche still leads when a component rests on a load-bearing unknown.
+
+## The loop = a FRESH {Developer → Code-Reviewer → QA} triad per component
+
+Each component tranche is delivered by a **fresh set of three subagents, spawned sequentially by the orchestrator** — one Developer, one Code-Reviewer, one QA. **No context is carried between components**: every subagent starts slim, and every component boundary is a durable crash-checkpoint (rule `72-orchestrator-discipline.mdc`).
+
+```
+FOR EACH component tranche (then each additional-logic tranche):
+  ── a BRAND-NEW triad, fresh + slim context each time ──
+  1. /implement   → ONE Developer subagent (08) — implements the WHOLE component
+                    (datasource-field contract + rendering + component-map
+                    registration + variants + its tests), TDD, WRITES + COMMITS
+                    INCREMENTALLY, returns a minimal report.
+  2. /code-review → ONE Code-Reviewer subagent (08, review mode) — reviews ONLY
+                    this component's diff; returns {findings, severity} minimal.
+  3. /test        → ONE QA subagent (07) — tests ONLY this component (suite + lint
+                    + build, scoped); returns {pass|fail, counts} minimal.
+  IF /code-review has an unfixed Critical/Major, OR /test fails:
+     → loop back to a fresh /implement (the Developer fixes) → re-review → re-test
+  EXIT when /code-review is clean (no unfixed Critical/Major) AND /test is green:
+     → the orchestrator COMMITS the component + RECORDS it to the manifest
+     → a BRAND-NEW triad starts for the next component
+```
+
+- **Fresh + slim per component.** Each triad member is a new subagent with fresh context; nothing is carried across the component boundary. This is what keeps the orchestrator slim (rule `72`) and makes each boundary crash-safe.
+- **Developer writes + commits incrementally** — a contract clause, not an ad-hoc plea. Committing early is why a mid-turn crash keeps its code (Change 4 / the Developer `## Outputs Contract`).
+- **Each triad member returns a decision-grade minimal report** (`outcome` · `summary` ≤3 lines · `artifacts[]` · `escalations[]`) — never a narrative. The detail lives on disk; the orchestrator relays ~5 lines, not 500 (rule `72`).
+- **Well-defined exit criteria.** Done = `/code-review` has **no unfixed Critical/Major** AND `/test` is **green** (full suite + lint + build + any required tranche smoke `passed`).
+- **Loop-back is always to the Developer (08).** A failing gate never advances; the fix is a fresh Developer subagent.
+- **Bounded to 5 cycles.** If a tranche is not clean after the fifth implement → review → test pass, **escalate to the operator** (a hard stop naming the blocking findings) — do not loop indefinitely.
+- **Exit ⇒ orchestrator commits + records, then a new triad starts.** The component boundary is a durable crash-checkpoint: manifest update **and** `git commit`, together (Change 4). The orchestrator **never** implements / reviews / tests itself — it sequences the triads, commits, and records (rule `72`).
+- **Autonomous within the phase; tracked, not stopped.** The loop does not stop between components. The per-component `stage_history` entry the orchestrator records at exit is the operator's granular progress on how implementation is doing *while it is built* — it is **tracking, not a stop**. Do **not** stop to have the operator eyeball a component, a variant, or the Components Preview page *mid-build*; that is the exact over-stop this rule forbids (a real run stopped after each component to show the test page before code-review/QA).
+- **The build phase has exactly ONE operator review: the end-of-build `build` gate.** After the *whole* implementation is review-clean + test-green (the last component tranche + additional-logic tranches all exited), the operator gets **one** look at the **Components Preview** page (rule `80-content-sdk-headapp.mdc` § 0b; `.agent/glossary.md` § "Components Preview") — one subpage per component, all variants — and approves the build in total. This is the `build` gate for content-sdk runs (at `/test` close) and the `final` gate for non-content runs (also at `/test` close). It is the SAME single stop whether the build is one component (a small FRD) or dozens (a large PRD). Everything before it in the build phase is autonomous. The other hard gates (`spec` / `design` / `final` / `go_live`, `.agent/glossary.md` § "Operator Gate") are unchanged.
+- **Foundation + additional-logic tranches** (theme, chrome, nav, routing, app-level wiring) use the **same triad shape**.
+
+## Parallel tranches — opt-in BY PROOF, never by default (2026-07-29)
+
+Component tranches run **sequentially by default**. Two or more MAY run **concurrently** — their **{Developer → Code-Reviewer}** pair in isolated worktrees, with **QA once after the merge** — but **only when independence is PROVEN**, never when it is merely likely. The default on any doubt, missing declaration, or unprovable case is **sequential**. This is a defensive gate: a wrong split corrupts a build in ways that are expensive to diagnose, while staying sequential only costs wall-clock.
+
+**Probe tranches are absolutely blocking.** A 🔍 probe tranche **runs first, alone, to completion**, and stops for operator go/no-go before ANY implementation tranche starts — parallel or not. A probe never runs concurrently with anything, and no tranche that depends on a probe's outcome may start until the operator has confirmed it (rule `70-probe-and-tranche.mdc`). Splitting work that rests on an unconfirmed assumption is the exact failure the probe exists to prevent.
+
+### The eligibility test — ALL must hold, or run sequentially
+
+1. **No pending probe.** Every 🔍 probe tranche has completed AND been operator-confirmed.
+2. **No dependency path.** The tranches are disjoint in the *transitive closure* of `Depends on` — neither reaches the other. A shared upstream ancestor that is already complete is fine.
+3. **Disjoint declared file sets.** Their § 4c-5 file locations do not intersect. Generated build output is exempt (see below); everything else must be disjoint.
+4. **No shared mutable state.** Neither writes a file or item BOTH would touch — `sitecore.config.ts`, `next.config.*`, `package.json`, `.env*`, shared types/barrels, **or shared live-tenant items** (Available Renderings, Page/Partial Designs, placeholder settings, insert options). *(Two of these usually do not apply: **placeholder settings** default to unset — all components valid everywhere, so no write happens (see § "Known limitations" #1); and **Available Renderings** should be a **per-component item** under `parallel`, not a shared-field append, which removes it from this list entirely — rule `80` § 0 item 6, **confirmed live 2026-07-30**.)* *(The **Components Preview** tree is not on this list: QA (07) owns it and writes it once at `/test`, after the merge — rule `80` § 0b. Developers never touch it.)*
+5. **Explicitly declared.** The task breakdown's § 5 carries a **Tranche independence** block naming the concurrent set and its evidence. Absent the declaration, the orchestrator does **not** infer it.
+
+Fail any check, or cannot verify one → **sequential**. Say so in the run log; do not silently downgrade or silently split.
+
+### Operator dial — `scope_dial.delivery_parallelism` (`serial` default | `parallel`)
+
+Set once at `/create-prd` kickoff (Call 2), overridable per-run with `concurrency=`:
+
+- **`serial` (default, recommended).** One tranche at a time: one Developer implements it → code-review → QA → next tranche. Smallest blast radius, simplest to follow.
+- **`parallel`.** Independent tranches run their **{Developer → Code-Reviewer}** pair simultaneously in isolated worktrees; **QA runs once, after merge, over the integrated whole** (see below).
+
+**What `serial` actually buys — and what it does NOT (operator framing, 2026-07-30).** `serial` eliminates the **collision category outright**: one writer at a time, so no concurrent file writes, no `index.lock` race, no worktrees, no merge to resolve, no concurrent tenant writes. A Developer works, is reviewed, is QA'd, and only then does the next start on a settled tree — there is no window in which two writers exist.
+
+What `serial` does **not** change is **single-actor correctness**. The map-key match, the Server/Client map split and the Preview-tree chrome read-back are **not collision guards** — they are mistakes one developer working alone still makes, and all three were first observed on ordinary **serial** builds. They are therefore asserted on **every** Content SDK build (`/implement` § "Generated `.sitecore` maps" and `/test` § 1d-0), not just parallel ones. **Do not read the assertion list as a parallelism tax and skip it under `serial`** — that inversion would drop three checks precisely on the cadence most likely to be chosen for a first real run.
+
+**Safety is not a dial.** `parallel` never overrides the eligibility test — an unprovable set runs serially whatever the dial says, and probes are always blocking. The dial chooses *whether to use* proven independence, never *whether to prove it*.
+
+### The parallel split — Dev + Review concurrent, QA integrated
+
+**The triad splits across the merge, because its two halves have opposite dependencies:**
+
+- **Code review is diff-local.** It needs the diff, `prd-minimal`, and § 4c — not the sibling tranches. Reviewing one tranche in isolation is **fully valid**, is the cheap early catch, and is fast. So it belongs *inside* the worktree, concurrent.
+- **QA is integration-dependent.** Its entire value is exercising the real thing. A worktree holds only its own tranche's components, so its generated `.sitecore` maps are **partial by construction** and its build/suite would validate a codebase that will never ship. Running QA there is a weak signal at full cost — N redundant suite+build runs you then have to repeat properly anyway. So QA moves *after* the merge, once.
+
+```
+🔍 probe tranche (blocking, alone, operator go/no-go)
+   ↓
+┌─ worktree A: Developer → Code-Reviewer ─┐
+├─ worktree B: Developer → Code-Reviewer ─┤   concurrent
+└─ worktree C: Developer → Code-Reviewer ─┘
+   ↓  (every tranche review-clean)
+MERGE ALL → regenerate .sitecore maps ONCE → deferred shared-tenant writes, serially
+   ↓
+ONE QA (07) over the integrated whole — full suite + lint + build
+   ↓
+operator gate (build / final) — unchanged
+```
+
+**Per-tranche loop-back still applies inside the worktree:** an unfixed Critical/Major from that tranche's code review returns to a fresh Developer in that same worktree, bounded to 5 cycles, then escalate. A tranche does not join the merge until it is review-clean.
+
+### Isolation — one git worktree per concurrent tranche
+
+Each concurrent tranche runs in its **own git worktree of the PRODUCT's repo**, created by the **orchestrator via Bash** — **not** with the `Agent` tool's `isolation: "worktree"` flag.
+
+> **Why not the `isolation` flag (probed 2026-07-29, empirically).** That flag creates a worktree of the **session** repo at `.claude/worktrees/agent-<id>`. A worktree checks out **tracked files only**, and every product lives under the gitignored `products/*/*` — so inside such a worktree `products/_internal/` contains just its `README.md` stub and **the product being built does not exist**. A Developer spawned that way gets an empty scaffold. Verified by probe: main repo `products/_internal/` = `README.md, sdk-harness`; worktree = `README.md`.
+
+**The mechanism:**
+
+1. The orchestrator resolves the **product repo root** (the product is its own git repo — "one repo per deployable; git init at app root").
+2. Per concurrent tranche it runs `git worktree add <path> -b tranche-<slug>` **inside that repo**, placing worktrees outside the product tree (e.g. a sibling `.worktrees/` dir) so they never land in the build.
+3. Each Developer is spawned **without** `isolation:`, and told its worktree path explicitly in the prompt: *"Work in `<abs path>`. All reads and writes happen there."*
+4. At the join the orchestrator merges each `tranche-<slug>` branch, then **removes each worktree** (`git worktree remove --force <path>`, `git worktree prune`, delete the branch). Cleanup is **not** automatic — a dirty worktree survives and leaves the repo cluttered.
+
+Worktrees are not an optimization — parallel Developers in a shared tree race on `index.lock` and interleave commits even when their *files* are disjoint, defeating the incremental-commit crash-checkpoint. Isolation preserves every existing guarantee: each Developer still writes + commits incrementally, still runs slim, each tranche keeps its own durable checkpoint.
+
+**Do not run the full suite or `generate-map` inside a worktree** — both are integration-scoped and belong to the post-merge QA. The in-worktree Code-Reviewer reviews the **diff**; it does not need a green build to do that.
+
+### Merge-back and the integration gate
+
+Only when **every** concurrent tranche is **review-clean** does the orchestrator — **not** any Developer — merge and integrate, in this order:
+
+1. **Merge** each tranche's branch back. A merge conflict means the eligibility test was wrong: **stop, report which check failed, and finish the remaining tranches sequentially.** Never resolve a conflict by guessing which side wins.
+2. **Regenerate build output ONCE over the complete set** — `.sitecore/component-map.ts`, `component-map.client.ts`, `import-map.server.ts`, `sites.json` (see § "Generated `.sitecore` maps" in `/implement`). The per-worktree trees never generated these; this is the only authoritative generation. This is why check 3 exempts generated files.
+3. **Apply deferred shared-state writes serially** — the live-tenant registrations (Available Renderings entries, insert options, Page/Partial Design wiring) that check 4 kept out of the parallel window. The **Components Preview** tree is *not* here — QA composes it in step 4 as its own fixture setup.
+4. **Integration gate — ONE QA (07) over the whole build.** QA first composes its **Components Preview** fixture tree over the complete component set (rule `80` § 0b), then runs the full suite + lint + build + any required smoke against it. This is the *real* test pass; there was no per-tranche one. Components that reviewed clean in isolation can still break each other through the regenerated maps, shared types, routing, or theme tokens — this is where that surfaces. A failure loops back to a **fresh Developer on the merged tree** (an integration fix — the worktrees are gone by now, so there is nothing to re-run in place), bounded to **3** integration cycles, then escalate.
+4a. **One parallel-ONLY assertion: no tranche wrote generated maps.** Before merging, `git diff --name-only prd-NNN..tranche-<slug>` must not touch `.sitecore/*` for any tranche. A worktree's map is partial by construction (it sees only its own component), so a merge would silently take one side. This is the only map assertion that is specific to `parallel` — it exists because worktrees exist.
+   **The other map/chrome assertions are NOT parallel-specific and live elsewhere** (they fail identically under `serial`, and were in fact first observed on serial runs): map-key match and the Server/Client split are asserted for **every** Content SDK build in `/implement` § "Generated `.sitecore` maps"; the Preview-tree chrome read-back is asserted in `/test` § 1d-0. Do not treat them as a parallelism tax.
+5. **Tear down the worktrees** — `git worktree remove --force <path>` per tranche, then `git worktree prune` and delete the `tranche-<slug>` branches. Cleanup is **not** automatic: a worktree with any uncommitted change survives and clutters the product repo.
+6. **Then the operator gate** — the single end-of-build review (`build` on content-sdk runs, `final` otherwise), exactly as in the serial flow. Parallelism adds no operator stop and removes none.
+
+**Exit criteria are unchanged in substance:** no unfixed Critical/Major (per tranche, pre-merge) AND test-green (once, post-merge). Only *where* each half is evaluated moves.
+
+**Content SDK note.** Component tranches on a Content SDK run each create live Sitecore schema (rule `80` § 0), and rendering **registration** touches the shared Available Renderings item. Item *creation* is parallel-safe **when each item lands at its own path** — **measured 2026-07-30**: ten *simultaneous* `copyItem` clones from one OOTB source into one parent produced ten correctly-named, distinct items (verify by **path** lookup, not the `name` field, which misreports after concurrent copies — rule `80` § 0). It is **not** automatically safe for siblings under a shared parent. The shared **registration** write (Available Renderings) is not safe: defer it to join step 3, or the tranches fail check 4 and run sequentially. The **Components Preview** tree used to be the other shared-parent case; as of 2026-07-29 QA (07) composes it once at `/test` (rule `80` § 0b), so it is out of the parallel window entirely.
+
+### Known limitations — `parallel` is EXPERIMENTAL (2026-07-29)
+
+**The safety property first:** every unresolved case **degrades to sequential, never to corruption**. The Lead Developer catches shared-file and shared-item dependencies while splitting § 5, so a set that cannot be proven independent simply runs in a line — which is exactly today's behavior. Nothing below can break an implementation; the worst outcome is no speed-up. That is why this ships as experimental rather than behind a flag.
+
+**Open items, in the order they will bite:**
+
+1. **Placeholder settings — correctly handled, NOT a gap** *(reframed 2026-07-30 after operator correction; the earlier entry here wrongly called this an open defect).* The **default is no placeholder setting at all**, which means every component is valid in every placeholder and **no write happens** — so check 4 never fires and a typical multi-component Content SDK build does **not** degrade. When a component genuinely *does* need a placeholder setting, that is a real shared-state dependency: the task must **state it explicitly**, the Lead Developer sees it, check 4 catches it, and that tranche runs sequential. That is the correct outcome, reached correctly. **Do not add a deferral path for it** — deferral would let a genuine dependency slip past the check instead of honouring it. The only discipline required: a component needing a placeholder setting says so **in its task text**, so the dependency is *declared* rather than discovered mid-window.
+2. **`package.json` + lockfile.** Any tranche that adds an npm dependency writes both, and lockfiles merge badly. Mitigation is planning: declare the components' dependencies **upfront in the foundation tranche**, where they are usually known. Otherwise a dep-adding tranche runs sequential.
+3. **A diff-only reviewer can introduce a failure it cannot see** *(observed 2026-07-30, parallel-probe run).* Any Code-Reviewer that **fixes** without running the suite can break the file it just fixed — and this now applies to **both cadences**, since `/code-review` runs per tranche in each while `/test` is deferred (under `parallel` the reviewer is in a worktree with no `node_modules`; under `once` it is in the main tree but the test leg is batched to the end). In the probe it correctly killed a tautological assertion and dropped that file's `vitest` import in the same edit. Five suites passed, 18/18 tests green — and one suite failed to **load** (`ReferenceError: describe is not defined`). Only the post-merge integration gate caught it. **Consequence: the integration gate must run the FULL suite, never just `build`** — a build can be green while a test file cannot even be imported. This is the priced-in cost of splitting the triad at the merge, not a defect to fix; it is why the gate is load-bearing rather than ceremonial.
+4. **Content SDK path is unexercised.** The 2026-07-30 probe validated the machinery on a plain Next.js app (`a null composition) — 5 concurrent tranches, perfect file confinement, zero merge conflicts, ~2.9x on the dev+review legs. **Not yet exercised:** concurrent live-tenant schema creation, map regeneration at the join, and QA's Preview-tree composition with its new MCP tools. Treat the first Content SDK parallel run as a probe (rule `70`).
+
+**Design guidance that follows:** put everything shared in a **foundation tranche that runs first, sequentially** — design tokens, shared primitives, config, npm dependencies. Style components with utilities or **co-located CSS Modules**, never a central stylesheet every component appends to, and import components by path rather than through a barrel. A central registry of any kind — `globals.css`, `src/components/index.ts`, a shared types module — converts every component into a shared write and collapses the run to a line. **Registries hide in config, too:** a test runner's `include` must be a **wildcard glob** (`src/**/*.test.{ts,tsx}`), never an enumerated list of test paths — an enumeration makes every component tranche append its own entry, which is a registry by another name (caught by the Lead Developer during the 2026-07-30 probe). Check any config field that would otherwise need one line per component: test includes, route manifests, i18n key lists, storybook globs.
+
+### What does NOT change
+
+- The bounded 5-cycle loop, the loop-back-to-Developer rule, and the exit criteria are per tranche, unchanged.
+- The build phase stays **autonomous** — parallelism adds no operator stop. The single end-of-build review is still the only one.
+- `scope_dial.delivery_loop == once` batches the **test** leg only; parallelism affects *implementation* concurrency only. The two dials converge under `parallel` — review is tranche-local and QA runs once post-merge whatever the cadence says.
+- A single-tranche run (bug, small FRD, freeform) is unaffected.
+
+## Cadence dial — `scope_dial.delivery_loop` (`per_component` default | `once`)
+
+The operator sets the loop **cadence** at `/create-prd` kickoff (or per-run with the `loop=` slash arg on `/implement`). It is a quality-vs-cost lever, **not** a review gate — it never adds or removes an operator stop.
+
+**The dial moves the QA leg ONLY (changed 2026-07-29).** `/code-review` runs **per tranche in both cadences**. The two halves of the triad have different natural scopes — the same asymmetry § "The parallel split" already exploits across the merge:
+
+- **Code review is diff-local and cheap.** It needs the tranche's diff, `prd-minimal`, and § 4c — never the sibling tranches. Reviewing one tranche in isolation is fully valid, and it is the cheap early catch. Batching it saves almost nothing (the same diff gets read either way) while letting a defect sit under N tranches of new work before anyone looks at it.
+- **QA is integration-scoped and expensive.** Its full suite + lint + build cost is roughly constant per invocation, so running it per tranche is O(tranches × full-build) — the actual cost driver. It is also the leg whose value *grows* when deferred: it exercises the integrated whole.
+
+So `once` batches the expensive, integration-scoped leg and keeps the cheap, tranche-local one where it belongs. (Before 2026-07-29, `once` batched both.)
+
+- **`per_component` (default — the "standard", best-outcome setting).** Exactly the FOR-EACH loop above: each component tranche is implemented, code-reviewed, and tested **as a unit** (a fresh triad), looping back to the Developer on a Critical/Major or a test fail, and the orchestrator commits + records at each component boundary before the next triad starts. Small diffs, issues caught early **and proven green per component**, granular per-component progress — at the cost of more subagent spawns and more full suite/lint/build runs (more time + tokens).
+
+- **`once` (cheaper — batch the TEST leg at the end).** Each tranche is delivered by a fresh **{Developer → Code-Reviewer} pair** instead of a full triad: implement the whole component → review its diff → loop back to a fresh Developer on an unfixed Critical/Major (**bounded to 5**, then escalate) → the orchestrator **commits + records at review-clean** → next tranche. `/test` is **NOT** run between tranches. After **all** component + additional-logic tranches are review-clean, the orchestrator runs **one** `/test` over the **whole build** — the integration gate, and the run's only real test pass. A failure loops back to a fresh `/implement` on the whole build (the fix diff is code-reviewed as normal), then re-tests; **bounded to 5** whole-build cycles, then escalate.
+
+```
+IF scope_dial.delivery_loop == once:
+  FOR EACH component tranche (then each additional-logic tranche):
+     ── a fresh {Developer → Code-Reviewer} PAIR per tranche (slim, incremental commit) ──
+     /implement the whole component → /code-review ITS DIFF ONLY
+     loop back to a fresh /implement on an unfixed Critical/Major (bounded 5, then escalate)
+     EXIT (review-clean) → COMMIT + RECORD (crash-checkpoint) → next tranche
+  THEN once, over the whole build:
+     /test (full suite + lint + build + any required smoke)
+     a failure loops back to a fresh /implement on the whole build
+       → the fix diff is code-reviewed → re-test
+     (bounded to 5 whole-build cycles, then escalate)
+     EXIT = review-clean + test-green → the build phase is done
+```
+
+- **The tranche checkpoint is review-clean, not implement-done.** Under `once` the orchestrator still commits + records at every tranche boundary — but only once that tranche's code review is clean. Nothing unreviewed accumulates behind the batched test.
+- **Inert on single-tranche runs.** A bug, a small single-component FRD, or a freeform run has only one tranche — it is one implement → review → test pass **regardless** of the dial. `once` only diverges from `per_component` when § 5 defines **two or more** component tranches.
+- **Exit criteria are identical** for both cadences (no unfixed Critical/Major AND test-green); only *when the test leg* is evaluated differs (per component vs once at the end).
+- **`once` and `parallel` converge.** Both keep review inside the tranche and run **one** QA over the integrated whole; `parallel` additionally overlaps the pairs in worktrees. Setting `parallel` makes `delivery_loop` effectively moot for the test leg — QA is post-merge either way.
+- **Absent / legacy ⇒ `per_component`** (the pre-2026-07-13 behavior).
+
+## Preview-first / publish-last
+
+**The cost of this choice** — preview is the permissive surface, so a whole defect class is invisible until `/publish`; see rule `85-preview-live-divergence.mdc`.
+
+- During `/implement`, `/test`, `/author-content`, and `/test-content`, the head app + audits read **preview** (unpublished) content — do **not** publish to the LIVE Edge.
+- **`/ship` ships CODE ONLY** (editing-host + Vercel deploy against the **preview** context, commit, PR).
+- The **content phase** (`/discover-components` → `/author-content` ⇄ `/test-content`) runs **after** `/ship`, preview-only.
+- **`/publish`** is the single, final, operator-confirmed live step: publish EVERYTHING (layout items + authored content + media) → ser-pull the authored items into the CM code base + commit (git durability) → re-deploy on the **LIVE** Edge context → 200-not-302 media gate. Nothing goes live before it. The LIVE-context redeploy + media gate moved here from `/ship`.
+
+## The content loop (mirror of the delivery loop)
+
+`/author-content` ⇄ `/test-content` is the content-phase analogue: **bounded to 3 cycles**, with **QA (07) as the sole arbiter** of "good enough" (not the author). A Critical/Major finding or a "not good enough" verdict loops back to the Content Author (14). `/test-content` is **hard gate #3** — the final look before `/publish`. (See `.agent/glossary.md` § "Content test".)
+
+## Agent application
+
+- **06 Lead Developer:** § 5 = component-vertical tranches, then additional-logic; each component tranche is a delivery-loop unit (a fresh triad); note the loop + exit criteria in § 0. **Declare tranche independence** in § 5 — name any set that provably passes all five eligibility checks, with the evidence (disjoint file sets from § 4c-5, no `Depends on` path, no shared config or live-tenant item). Declaring nothing is a valid, safe answer; over-declaring is not. Sequence 🔍 probe tranches first and mark them blocking.
+- **08 Developer:** as the triad's Developer, implement ALL of one component's items in its tranche, TDD, **write + commit incrementally**, return a minimal report; as the triad's Code-Reviewer (review mode), review ONLY that component's diff and return `{findings, severity}` — **this leg is per tranche under every dial combination** (`per_component`, `once`, `serial`, `parallel`); under `parallel` you review inside the tranche's worktree against the diff alone; do NOT run the full suite or `generate-map` there; on a loop-back, a fresh Developer subagent fixes and hands back for re-review / re-test; work against preview — never publish.
+- **07 QA Specialist:** you run **once over the integrated whole** (full suite + lint + build + any required smoke) whenever the run is `parallel` **or** `delivery_loop == once` — there is no per-tranche test pass in either, so that gate is the run's only real one; a failure returns a fresh Developer to the whole/merged tree (bounded 5). Under `serial` + `per_component` (the default), as the triad's QA, test ONLY that component (suite + lint + build, scoped) and return `{pass|fail, counts}`; a Critical/Major or a test failure returns the tranche to a fresh Developer; in the content phase 07 is the arbiter of the content loop.
+- **00 Team Lead (orchestrator):** read `scope_dial.delivery_parallelism` and `scope_dial.delivery_loop` first, then § 5's **Tranche independence** block. On `serial` (default) run tranches one at a time; on `parallel` use a proven set only. Run every 🔍 probe first and alone (operator go/no-go) before any implementation tranche. Re-verify all five eligibility checks yourself — a declaration is a claim, not a permit — and spawn concurrent Developers **only** on a set that passes, each in a `git worktree` you created **in the product's own repo** via Bash (never the `Agent` `isolation:` flag — it worktrees the framework repo, where products are gitignored and therefore absent), passing each its worktree path. Own the join (merge → regenerate maps once → apply deferred shared-tenant writes serially → ONE QA over the integrated whole → tear down the worktrees). On a join merge conflict, stop and finish sequentially. Default to sequential whenever a check cannot be verified. On **`per_component`** (default): spawn a **fresh {Developer → Code-Reviewer → QA} triad per component**, sequentially, passing paths not contents (rule `72`); on exit (review-clean + test-green) **commit the component + record it to the manifest**, then start a **brand-new triad** for the next component; bound to 3 cycles then escalate. On **`once`**: spawn a fresh **{Developer → Code-Reviewer} pair** per tranche (review stays per tranche — bounded 5, loop-back to a fresh Developer, then **commit + record at review-clean**), skip the per-tranche test, and after every tranche is review-clean run a **single** `/test` over the whole build with whole-build loop-back (bounded 5, the fix diff code-reviewed as normal). Either cadence: **never** implement / review / test itself; emit per-component progress; never stop between components (autonomous within the build phase).
+- **13 DevOps Engineer:** `/ship` deploys against preview; `/publish` is the one live step (publish everything → ser pull → live-context redeploy → media gate), operator-confirmed.
+
+## Relationship to other rules
+
+- `70-probe-and-tranche.mdc` — tranche-first + probe load-bearing unknowns; this rule builds on it (component-vertical tranches; the delivery loop is how each tranche is executed).
+- `30-tdd.mdc` — RED before GREEN inside a component's implementation; the delivery loop wraps the whole component (implement → review → test) around it.
+- `72-orchestrator-discipline.mdc` — the orchestrator spawns the fresh triad, passes paths not contents, and commits + records at each component boundary; this rule is *how* it sequences the build phase while staying slim.
+- `80-content-sdk-headapp.mdc` — Content SDK head-app invariants (§ 7 LIVE-context deploy now lands at `/publish`, not `/ship`).
+
+## Pitfall index
+
+- Horizontal decomposition (all data layers, then all components, then all tests) → regroup into component-vertical tranches.
+- A component "done" with only its data layer → not done; a tranche carries ALL the component's items.
+- A code-review Critical/Major or a test failure that advances anyway → loop back to the Developer, do not proceed.
+- Reusing one long-lived Developer subagent across every component → spawn a **fresh** triad per component; carrying context between components defeats the crash-checkpoint + slim-context design.
+- The orchestrator implementing / reviewing / testing a component itself → it only sequences the triads, commits, and records (rule `72`).
+- Finishing a component without committing + recording it → the component boundary is a durable checkpoint (manifest update + `git commit`, together); skipping it loses the crash-resume guarantee.
+- Looping a stuck tranche forever → bounded to 5 cycles, then escalate.
+- Running tranches concurrently because they "look independent" → independence must be **proven** against all five checks and **declared** in § 5; anything less is sequential.
+- Starting any implementation tranche while a 🔍 probe is unconfirmed → probes are absolutely blocking and run alone, first.
+- Concurrent Developers in one working tree → they race on `index.lock` and interleave commits even with disjoint files; each concurrent tranche needs its own **worktree**.
+- Spawning a concurrent Developer with the `Agent` tool's `isolation: "worktree"` flag → that makes a worktree of the **framework** repo, where `products/*/*` is gitignored and therefore ABSENT; the Developer gets an empty scaffold. Create the worktree in the **product's own repo** via Bash and pass the path in the prompt (probed 2026-07-29).
+- Leaving worktrees behind after the join → removal is not automatic when the tree is dirty; `git worktree remove --force` + `prune` + delete the branch, every time.
+- Letting each parallel Developer run `generate-map` → per-worktree maps are stale by construction; regenerate **once at the join** over the complete component set.
+- Two tranches both registering renderings into Available Renderings (or writing a Page/Partial Design) → shared live-tenant state; defer those writes to the join or run sequentially.
+- Resolving a merge-back conflict by picking a side → the conflict means the eligibility test was wrong; stop, report the failed check, and finish sequentially.
+- Running QA or the full suite inside a worktree → the tree holds only its own tranche, so its maps are partial and its build validates a codebase that will never ship; QA is integration-scoped and runs ONCE after merge.
+- Running `generate-map` inside a worktree → same reason; the only authoritative generation is at the join, over the complete component set.
+- Merging a tranche that is not review-clean → a tranche joins the merge only after its own code review has no unfixed Critical/Major (bounded 5, in its worktree).
+- Skipping the full suite at the integration gate because "it built" → that gate is the run's ONLY real test pass; components that reviewed clean in isolation break each other via regenerated maps, shared types, routing, and theme tokens.
+- Looping an integration failure back to the original tranche's worktree → the worktrees are gone after merge; fix forward with a fresh Developer on the merged tree, bounded to 5 integration cycles.
+- Choosing `parallel` and assuming it forces concurrency → the dial selects whether to *use* proven independence; an unprovable set still runs serially, and probes still block.
+- Publishing mid-build to make a preview render / test pass → preview-first; the only publish is `/publish`.
+- Stopping between every component for operator sign-off → the build phase is autonomous; track progress, don't gate it (the hard gates are elsewhere).
+- Stopping mid-build to have the operator "check the Components Preview page" before code-review/QA → there is exactly ONE build-phase operator review, and it is at the END of the whole build (the `build`/`final` gate at `/test` close), after review + test — never after a single component and never before the review/QA legs.
+- Running `/test` per component when `scope_dial.delivery_loop == once` → in `once` the full suite + lint + build runs **once over the whole build**, after every tranche is review-clean; interleaving it per tranche defeats the operator's cost choice.
+- Skipping `/code-review` per tranche under `once` → the dial moves the **QA leg only** (changed 2026-07-29; `once` formerly batched both). Review is diff-local and cheap, batching it saves nearly nothing, and deferring it lets a defect sit under N tranches of new work before anyone reads the diff.
+- Committing a tranche under `once` before its code review is clean → the checkpoint is **review-clean**, not implement-done; nothing unreviewed accumulates behind the batched test.
+- Collapsing the per-component *implementation* into one giant Developer subagent under `once` → `once` batches only the test leg; implementation stays a **fresh Developer per component** with incremental commits (crash-safety + slim context are cadence-independent).
+- Treating `delivery_loop` as a review gate → it is a cost/quality cadence lever only; it never adds or removes an operator stop, and it is inert on single-tranche runs.

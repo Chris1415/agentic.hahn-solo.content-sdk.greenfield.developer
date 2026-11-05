@@ -1,0 +1,40 @@
+# Line endings are normalized to LF in the repository AND in the working tree.
+#
+# WHY eol=lf and not bare text=auto: `text=auto` alone still hands Windows a CRLF
+# working tree under core.autocrlf=true, and this repo is compared byte-for-byte
+# against a second clone (the canonical skills marketplace). On 2026-08-15 that
+# cost a real false alarm — 33 of 53 skills reported as drifted with zero content
+# differences. Pinning the working tree to LF makes every clone byte-identical, so
+# a cross-clone compare means what it says. See CLAUDE.md § Sitecore skills.
+#
+# .githooks/* and *.sh are executed by sh: a CRLF shebang line breaks them outright.
+* text=auto eol=lf
+
+*.sh        text eol=lf
+.githooks/* text eol=lf
+
+# Binary — never normalized, never diffed as text.
+*.jpg   binary
+*.jpeg  binary
+*.png   binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.pptx  binary
+*.xlsx  binary
+*.docx  binary
+*.woff  binary
+*.woff2 binary
+*.mp4   binary
+*.zip   binary
+
+# Git LFS — NOT configured here any more, deliberately.
+#
+# It was added 2026-08-22 for the Sitecore deck series, which was the only thing in this
+# repo with multi-MB churning binaries. That series moved to the sibling work repo the
+# same day (CLAUDE.md § Work materials), and LFS moved with it. Nothing tracked here now
+# justifies the cost: an install step, GitHub quota, and losing "clone and it just works".
+#
+# The .githooks/ LFS hooks are KEPT even so — commit fdb172d and its ancestors still carry
+# LFS pointers, so checking out that range without them yields 130-byte files.

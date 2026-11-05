@@ -1,0 +1,11 @@
+---
+description: Project boundaries and safety
+alwaysApply: true
+---
+
+# Boundaries
+- Never edit: .env*, secrets, CI pipelines, infra configs unless explicitly asked.
+- Do not rename folders or restructure project without updating the PRD first.
+- Do not change package manager or tooling defaults.
+- **Destructive commands go through the operator.** Without an explicit ask in this conversation, an agent does not run: a recursive delete outside throwaway locations (OS temp / the session scratchpad, or build output such as `node_modules`, `.next`, `dist`, `build`, `out`, `coverage`); `git push --force` / `-f` / a `+refspec`; `git reset --hard`, `git clean -f`, `git checkout -- <path>`, `git restore` of the worktree; killing processes by image name (`taskkill /IM`, `Stop-Process -Name`, `pkill`, `killall`; stop your own PIDs only). These are the commands with no undo, and an agent running in auto or bypass mode on Windows has wiped whole drives with them. A delete target the agent cannot read literally (a `$VAR`, `*`, `..`, `xargs`) counts as outside. The rule binds every agent in every mode. When the operator does want one, they run it themselves as `! <command>`.
+- **Peer-product reference is governed by `scope_dial.external_reference`** (glossary § "External reference"): `prohibited` = never read another product's repo — if a sibling would solve a wall, stop and ask the operator; `cite-required` (default) = log each borrowed peer-product pattern (what + from where, to `operator_attention` / the run report) and report the reliance count at `/ship`; `free` = no logging. This never restricts the `sitecore:*` skills, `node_modules` `.d.ts` (rule 40), or the shared `cm/` — those are the product's own scope, not "another repo".

@@ -1,0 +1,123 @@
+---
+description: A source comment says WHY in a line or two and links out. Narrative history, code-review findings, task/tranche IDs, measurement logs and rejected-alternative post-mortems belong in the product's tracked `docs/build-decisions.md`, never in a source-file header. A file-header comment over ~10 lines is a smell; over 25 is a defect, gated by `audit-comment-density.mjs`.
+alwaysApply: true
+---
+
+# Comment Economy — the reasoning is durable, the file is not the place for it
+
+## The rule
+
+**In a source file, a comment answers "why is this not the obvious thing?" in one or two lines, and links out for the rest.**
+
+1. **Cap.** A single comment block over **10 lines** is a smell. Over **25 lines** is a defect and fails the audit.
+2. **Link, don't retell.** When the reasoning is longer than two lines, write it once in `docs/build-decisions.md` and leave a pointer: `// positioned in the page margin, not the content column — see docs/build-decisions.md#anchornav-rail`.
+3. **Never in a source file:** narrative build history, code-review findings and their resolution, task IDs (`T061`), tranche numbers, reviewer names, measurement logs, POC line references, or a post-mortem of an approach that was rejected.
+4. **Trailing annotation is the encouraged form.** `const delay = 120; // matches the CSS transition, not a guess` costs one line and needs no destination.
+5. **These belong in source and are not affected:** a one-line `@param`/`@returns` where the type does not say it, a `// eslint-disable-next-line` with its reason, a `TODO(owner): …`, a licence header, and a short block explaining a genuinely non-obvious algorithm *in this function*.
+
+**The corollary:** deleting a comment wall without moving its content is data loss, not cleanup. The destination comes first — always.
+
+## ⚠ EVIDENCE STAYS IN SOURCE — this rule never overrides rule `40`
+
+**Narrative moves; evidence does not.** A comment wall is usually both, and stripping it wholesale destroys the half that has to stay.
+
+**Rule `40-sdk-contracts` REQUIRES an inline `.d.ts` citation at the call site.** It is always-on, and it wins. Measured 2026-08-12: **112 product source files** carry a `node_modules/…d.ts` citation. A "move it all to the doc" pass would violate rule `40` in every one of them.
+
+**Never relocate out of source — keep as a trailing annotation or a ≤3-line block:**
+
+| Evidence | Why it stays |
+|---|---|
+| `// source: node_modules/…/X.d.ts` | rule `40`, mandatory at the call site |
+| A resolver / template / datasource **GUID** | not derivable from anything in the file |
+| A **capture path** (`project-planning/captures/…json`) | points at tracked evidence for *this* code |
+| A **magic constant's** reason (`first: 10`, `1.8s`, `120px`) | the number is right here; its reason must be too |
+| A **measured** value that justifies the line (`6.04:1`, `~38 of 79px`) | the measurement IS the justification |
+
+**Relocate to `docs/build-decisions.md`:** the narrative around that evidence — what was rejected and why, review history, task/tranche IDs, POC line references, the post-mortem.
+
+**The test:** *if the line above changed, would this comment become wrong?* If yes it is evidence — keep it adjacent. If it would merely become stale history, it is narrative — move it.
+
+**Measured cost of getting this wrong** (2026-08-12, the first harvest pass on this repo): only **39% of high-signal tokens** (57 of 148) survived a narrative-first harvest — **0 of 21 `.d.ts` citations**, plus resolver GUIDs and 5 of 7 capture paths in one app. The prose read complete; the evidence was gone. Re-check retention on any bulk pass rather than trusting that the summary "covers it".
+
+## Why this is not obvious — the wall looks like diligence
+
+Every other signal rewards it. It compiles, it lints, tests pass, `next build` succeeds, and a reviewer reads 150 lines of careful reasoning as thoroughness. Nothing in the pipeline objects, because nothing measures it.
+
+Measured across all products **2026-08-12**, 1,505 hand-written `.ts`/`.tsx` files:
+
+| | |
+|---|---|
+| comment-to-code overall | **28%** |
+| files with a header essay ≥25 lines | **183** (8,477 lines) |
+| worst app | **115%** — 4,642 comment vs 4,043 code |
+| second worst | **74%** |
+| single largest block | **287 lines** (a proxy simulator in one app) |
+| worst single file | a grid component — 227 lines, ~22 of them code |
+
+And it was **accelerating**, not decaying: apps ordered by build start date run 28% → 15% → 52% → 46% → 40% → **74% → 115%**. The two newest builds were the two worst.
+
+## The root cause is structural — fix the destination, not the habit
+
+**The agent was doing the rational thing.** Code-review reports, test reports and task breakdowns are run-scoped and were gitignored (artifact durability tiering). So when a delivery loop produced a hard-won finding — *`float` was abandoned, not patched, because a float reserves space only for its static rect and `position:sticky` then travels into territory nothing reserved* — the only place that survived a fresh clone was the source file.
+
+Two changes remove the incentive:
+
+1. **`plans/code-review-*.md` and `plans/test-report-*.md` are now TRACKED.** The delivery loop's own findings survive the clone. (Task breakdowns, interrogation ledgers, `architecture/`, `ui-design/`, `brain-dumps/` and `*-minimal-*` stay ignored — those genuinely are superseded by shipped code.)
+2. **`docs/build-decisions.md` is the component-grained decision record.** ADRs are the right durability tier but the wrong grain — one decision per file, architecture-scoped. `docs/build-decisions.md` holds the smaller "why is this component built this way" entries, each with a stable anchor a comment can point at.
+
+**The proof that the destination matters:** of the eight head apps, four still had their review reports on disk and four had none. The second-worst offender at 74% had **zero**. Its header essays were the only surviving copy of its own build reasoning. A gate deployed without the destination would have deleted it.
+
+## What the audit does and does not catch
+
+`node .agent/scripts/audit-comment-density.mjs --path <dir> [--json] [--quiet] [--wall N]`
+
+Read-only, no network. Exit 1 on any unwaived wall — **run it at every delivery-loop exit, before the commit**, alongside `audit-sitecore-schema.mjs` (rule `80` § 0a) and `audit-component-authorability.mjs` (rule `86`).
+
+| Axis | Level | Fires on |
+|---|---|---|
+| `header-essay` | defect | comment run ≥ 25 lines starting in the first 20 lines |
+| `comment-wall` | defect | comment run ≥ 25 lines anywhere else |
+| `long-block` | warn | comment run ≥ 12 lines |
+| `density` | warn | comment:code over 40% in a file with ≥ 30 code lines |
+
+Generated files (`@generated` / `DO NOT EDIT` in the first 8 lines), `.d.ts`, `node_modules/`, `project-planning/`, `.worktrees/` and vendor output are skipped. Waivers live in `<product>/.comment-density-ignore.json` under `files`, **each with its own mandatory reason**; a waiver that no longer matches anything is reported as stale.
+
+**It measures volume, not correctness.** It cannot tell a load-bearing comment from a worthless one, and it will never flag the far more dangerous defect — a comment that is short and *wrong*. A green run means "no walls", never "the comments are good". Human review still owns correctness.
+
+### ⚠ A DIRECTIVE COMMENT IS CODE — never strip one
+
+`@ts-expect-error` · `@ts-ignore` · `@ts-nocheck` · `eslint-disable` / `eslint-enable` · `@vitest-environment` · `@jest-environment` · `webpackChunkName` · `prettier-ignore` · `istanbul ignore` · `c8 ignore` · `sourceMappingURL` · `@license` / `@preserve`
+
+Removing one changes behaviour, and **`@ts-expect-error` is the sharp case: deleting it turns a green build into a compile error**, because the error it suppressed is now unexpected. `eslint-disable` and `@vitest-environment` fail differently — quietly.
+
+**Snapshot before, compare after. Do not eyeball it:**
+
+```sh
+node .agent/scripts/guard-comment-directives.mjs <dir> snapshot   # before the strip
+node .agent/scripts/guard-comment-directives.mjs <dir> compare    # after — exit 1 if any count dropped
+```
+
+Measured 2026-08-12: 44 directive comments across five Sitecore head apps (8, 11, 7, 4 and 3) — every one of them inside a file with a wall.
+
+### Prove the strip touched only comments
+
+```sh
+node .agent/scripts/verify-comment-only.mjs <repo>   # HEAD vs HEAD~1, exit 1 on any code change
+```
+
+Strips every comment from both sides of each changed source file and asserts the remaining code is byte-identical. Run it **after committing**, before pushing — a botched cut that lands across a `/* … */` boundary turns code into comment (or the reverse) and still compiles.
+
+## Applying it to existing code
+
+Never strip first. The order is fixed:
+
+1. Harvest the wall's **narrative** into `docs/build-decisions.md` with a stable anchor.
+2. Confirm the entry is committed and reads correctly on its own.
+3. **Extract the wall's EVIDENCE back out** (§ "Evidence stays in source") and keep it as trailing annotations.
+4. Replace what remains with a one-line pointer.
+5. **Verify retention** — every `.d.ts` citation, GUID and capture path that was in the file is still in the file.
+6. Tests + build green before the commit.
+
+Step 3 is the one that gets skipped, and skipping it is silent: the file still compiles, the doc still reads well, and the rule-`40` violation surfaces only at the next SDK upgrade when nobody can tell where a shape came from.
+
+Where a wall merely restates a tracked ADR or capture, the pointer replaces it directly — no new decisions entry needed. Where the wall is the only surviving copy (no review report on disk), harvesting it is mandatory before deletion.

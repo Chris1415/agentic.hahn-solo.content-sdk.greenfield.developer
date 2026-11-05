@@ -1,0 +1,426 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic.hahn-solo/pack.schema.json",
+  "title": "Agentic pack (platform | method | audience), contract 1",
+  "description": "Shape of a .agent/packs/<kind>/<id>/pack.json. THIS FILE IS EDITOR SUPPORT, NOT THE GATE. The rules that actually matter are cross-file and cross-pack — one owner per slot, one owner per dial, extends resolves to the same kind, incompatible_with refuses a composition — and JSON Schema cannot express any of them because they only exist when two packs are composed. `.agent/scripts/resolve-packs.mjs` is the enforcing implementation; `__tests__/resolve-packs.test.mjs` mutation-tests it. Contract prose: .agent/packs/README.md.",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "contract",
+    "version",
+    "title"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "MUST equal the directory name. The directory is the identity."
+    },
+    "kind": {
+      "enum": [
+        "platform",
+        "method",
+        "audience",
+        "source"
+      ],
+      "description": "MUST equal the parent directory. Determines what this pack may own. A source pack (/migrate) owns nothing: additive only, with closed requires + composes_with."
+    },
+    "contract": {
+      "const": 1
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "title": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "declares-today",
+        "live"
+      ],
+      "description": "declares-today = states current inline behaviour verbatim for snapshot comparison; nothing reads it. A deviation from the command prose is a bug in the pack, not an improvement."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Which stages this pack has actually been written for. Prevents reading a partial pack as complete."
+    },
+    "extends": {
+      "type": "string",
+      "description": "Inherit another pack OF THE SAME KIND; declare only the delta. Merge: additions concatenate, scalars and slots override, templates override."
+    },
+    "incompatible_with": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(platform|method|audience|source):[a-z0-9-]+$"
+      },
+      "description": "Compositions this pack refuses. Effect is symmetric — either side declaring it refuses the pair."
+    },
+    "incompatible_reason": {
+      "type": "string"
+    },
+    "activates_when": {
+      "type": "string"
+    },
+    "composes_with": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "For a source pack: the CLOSED allowlist of packs it may be active with; any other active pack is refused."
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(platform|method|audience):[a-z0-9-]+$"
+      },
+      "description": "Source packs only: packs that must all be active, or the composition is refused."
+    },
+    "detect": {
+      "type": "object",
+      "description": "How M0 recognises this pack from an existing tree (platform-pack.md § 2).",
+      "properties": {
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "test",
+              "confidence"
+            ],
+            "properties": {
+              "test": {
+                "type": "string"
+              },
+              "confidence": {
+                "enum": [
+                  "strong",
+                  "corroborating"
+                ],
+                "description": "A strong signal alone resolves. Corroborating signals alone NEVER do."
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "corroborating_alone_is_insufficient": {
+          "const": true
+        },
+        "records": {
+          "type": "string"
+        }
+      }
+    },
+    "variables": {
+      "type": "object",
+      "description": "Run-scoped values the pack interpolates, e.g. {router} in a skill name.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "values": {},
+          "default": {},
+          "detect": {
+            "type": "array"
+          },
+          "resolved_at": {
+            "type": "string"
+          },
+          "records": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "description": "SLOT — owned by kind `platform`. Names this platform needs, and WHEN each becomes permanent.",
+      "properties": {
+        "naming": {
+          "type": "object",
+          "description": "Which names are local vs tenant-facing, and when an unresolved tenant-facing name must stop the run.",
+          "properties": {
+            "required_at": {
+              "enum": [
+                "intake",
+                "before_scaffold",
+                "go_live"
+              ],
+              "description": "When an UNRESOLVED tenant-facing name stops the run. intake = the name is written to disk before the spec exists (content-sdk: the editing-host name lands in xmcloud.build.json before the first commit). before_scaffold = nothing is written and nothing enters tenant state until implement, so planning survives a rename. go_live = it only matters at the real-tenant boundary. Was an unschemad two-value enum until 2026-08-28; a pack could declare required_at: \"banana\" and every gate stayed green."
+            },
+            "tenant_facing": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Names that propagate into tenant state a rename does not undo. Every entry needs a slot in run-manifest.template.json workspace{}."
+            },
+            "local": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Names derivable from the run slug — folders, roots, branches, slugs."
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "repo_setup": {
+      "type": "object",
+      "description": "SLOT — owned by kind `platform`."
+    },
+    "repo_topology": {
+      "description": "How this platform's deployables map onto git repos. STRING form = one fixed answer, not selectable. OBJECT form = the operator picks per run, and `variants` carries what each choice CHANGES — the resolver merges the selected variant over `workspace` / `repo_setup` so a brief shows exactly one coherent answer. Without `variants` the key would be decorative: a value nothing acts on (rule 88).",
+      "oneOf": [
+        {
+          "enum": [
+            "repo-per-deployable",
+            "monorepo"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "default",
+            "values",
+            "variants"
+          ],
+          "properties": {
+            "default": {
+              "enum": [
+                "repo-per-deployable",
+                "monorepo"
+              ],
+              "description": "Applied when the run recorded no choice. A resolution the operator never made must still be a NAMED one."
+            },
+            "values": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "enum": [
+                  "repo-per-deployable",
+                  "monorepo"
+                ]
+              },
+              "description": "Every value the operator may pick. An unlisted value is an ERROR, never a silent fallback to the default."
+            },
+            "operator_selectable": {
+              "type": "boolean",
+              "description": "true = a stage must ASK. A pack declaring several values without asking is the state BACKLOG item 22 recorded: expressible and unreachable."
+            },
+            "resolved_at": {
+              "enum": [
+                "intake",
+                "before_scaffold",
+                "go_live"
+              ],
+              "description": "When the answer must exist. `intake` where it decides the folder, the git init and the build descriptor — all three land before the first commit."
+            },
+            "records": {
+              "type": "string",
+              "description": "Run-manifest field the resolved value is written to."
+            },
+            "variants": {
+              "type": "object",
+              "description": "Per-value patch, deep-merged over the pack's own top-level declarations. Keys are values from `values`; each value is an object of pack-level keys to override (today: `workspace`, `repo_setup`).",
+              "additionalProperties": {
+                "type": "object"
+              }
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Rule files this pack's stages cite. Activation is by citation — .mdc frontmatter is inert (plan § Findings C)."
+    },
+    "dials": {
+      "type": "object",
+      "description": "Scope-dial presets. ONE OWNER PER DIAL, and it must be the owning kind: ui_variants/rigor -> method; content_authoring/imagery/delivery_loop/delivery_parallelism -> platform; gates/output_verbosity/docs_at_ship/external_reference/track -> audience.",
+      "additionalProperties": true
+    },
+    "stages": {
+      "type": "object",
+      "description": "Per-stage contributions, keyed by stage name (implement, test, ship, ...).",
+      "additionalProperties": {
+        "$ref": "#/$defs/stageDecl"
+      }
+    }
+  },
+  "$defs": {
+    "stageDecl": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "skill",
+              "load"
+            ],
+            "properties": {
+              "skill": {
+                "type": "string",
+                "description": "Bare skill name. May interpolate a declared variable, e.g. content-sdk-{router}-router-component-scaffold."
+              },
+              "load": {
+                "enum": [
+                  "always",
+                  "mandatory_when",
+                  "when_relevant"
+                ],
+                "description": "always is the only machine-checkable policy; the other two carry a model-evaluated predicate."
+              },
+              "when": {
+                "type": "string",
+                "description": "Required for mandatory_when (or a topic for when_relevant) — a conditional load with no stated condition is a policy nobody can apply."
+              },
+              "topic": {
+                "type": "string"
+              },
+              "anchor": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "router_generic": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "description": "Ordered steps at a NAMED anchor. SEVEN anchors: tranche_join was added, and `scaffold` / `preflight_credentials` were REMOVED because they are slots — a name cannot be both.",
+          "propertyNames": {
+            "enum": [
+              "discovery.questions",
+              "tranche_exit",
+              "tranche_join",
+              "integration_assertions",
+              "test_fixture_setup",
+              "ship.pre_commit",
+              "ship.post_pr"
+            ]
+          }
+        },
+        "additions": {
+          "type": "object",
+          "description": "Items appended to a list the CORE owns. Always concatenates — never conflicts.",
+          "additionalProperties": {
+            "type": "array"
+          }
+        },
+        "overrides": {
+          "type": "object",
+          "description": "Replace a stage body or a template file. Range rule: platform -> build/deploy/release stages; method -> intake/spec/design stages; audience -> templates ONLY."
+        },
+        "constraints": {
+          "type": "array",
+          "description": "Concatenating list — no ownership, so any kind may contribute.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "text"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "why": {
+                "type": "string"
+              },
+              "corollary": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "scaffold": {
+          "description": "SLOT — platform. null permitted WITH a scaffold_reason sibling."
+        },
+        "definition_of_done": {
+          "description": "SLOT — platform. Other kinds contribute via additions.definition_of_done_addenda[]. This is the collision case."
+        },
+        "generated_artifacts": {
+          "description": "SLOT — platform."
+        },
+        "preflight_credentials": {
+          "description": "SLOT — platform."
+        },
+        "exit_criteria": {
+          "description": "SLOT — method."
+        },
+        "scaffold_reason": {
+          "type": "string"
+        },
+        "definition_of_done_reason": {
+          "type": "string"
+        },
+        "generated_artifacts_reason": {
+          "type": "string"
+        },
+        "preflight_credentials_reason": {
+          "type": "string"
+        },
+        "exit_criteria_reason": {
+          "type": "string"
+        },
+        "integration_assertions": {
+          "type": "array"
+        },
+        "join_assertions": {
+          "type": "array"
+        },
+        "join_steps": {
+          "type": "array"
+        },
+        "tranche_exit": {
+          "type": "array"
+        },
+        "owned_by_core_do_not_duplicate": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "finding": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

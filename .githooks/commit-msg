@@ -1,0 +1,27 @@
+#!/bin/sh
+# commit-msg — commit message guardrail gate for this framework.
+#
+# Enforces the commit-message convention from .agent/glossary.md:
+# - subject format: type(scope): summary
+# - subject length <= 72 chars
+# - rationale body length: 1-4 non-empty lines/sentences
+#
+# Enabled via: git config core.hooksPath .githooks
+# Bypass once with: git commit --no-verify
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "commit-msg: node not found on PATH — skipping commit-message validation." >&2
+  exit 0
+fi
+
+node .agent/scripts/validate-commit-msg.mjs "$1"
+status=$?
+
+if [ "$status" -ne 0 ]; then
+  echo "" >&2
+  echo "commit-msg: commit blocked (message is non-compliant)." >&2
+  echo "See .agent/glossary.md section \"Commit message convention\"." >&2
+  exit 1
+fi
+
+exit 0

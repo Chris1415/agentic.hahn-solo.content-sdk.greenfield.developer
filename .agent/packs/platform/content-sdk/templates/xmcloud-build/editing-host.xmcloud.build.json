@@ -1,0 +1,13 @@
+{
+  "renderingHosts": {
+    "<EDITING_HOST_NAME>": {
+      "path": "./",
+      "nodeVersion": "24.22.1",
+      "jssDeploymentSecret": "110F1C44A496B45478640DD36F80C18C9",
+      "enabled": true,
+      "type": "sxa",
+      "buildCommand": "build",
+      "runCommand": "next:start"
+    }
+  }
+}

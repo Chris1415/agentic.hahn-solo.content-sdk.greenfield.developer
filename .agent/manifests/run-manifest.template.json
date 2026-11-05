@@ -1,0 +1,306 @@
+{
+  "schema_version": 8,
+  "run_id": "<timestamp>",
+  "created_at": "<ISO-8601 timestamp>",
+  "updated_at": "<ISO-8601 timestamp>",
+  "product_slug": "<product-slug>",
+  "product_root": "products/<product-slug>",
+  "products_root_abs": null,
+  "product_root_abs": null,
+  "// products root is a MOUNT POINT (product-workspace.md § 1a)": [
+    "product_root and every canonical_artifacts path stay LOGICAL — they always start with products/, whatever disk the trees are actually on. Resolve with .agent/scripts/resolve-products-root.mjs; never store an absolute path in a logical field, or this manifest stops being readable on another machine.",
+    "products_root_abs / product_root_abs are DERIVED, per-machine mirrors, refreshed by whichever command touches the manifest. They exist so slim-context agents (Developer 08, which never reads product-workspace.md) get absolute paths and resolve nothing. Never trust a stale value carried over from another machine — rewrite it and continue."
+  ],
+  "deploy_project_name": null,
+  "project_slug": null,
+  "project_root": null,
+  "cm_code_base": null,
+  "// two-level identity (schema 8+, when the platform pack declares the two-level repo_setup.topology)": [
+    "For content-sdk head-app runs (product-workspace.md § 1b-i / § 3): product_slug + product_root point at the HEAD APP — the pipeline-run workspace where project-planning/ lives, e.g. products/head-application/<project-slug>/<head-app-slug>.",
+    "The four fields above name the Deploy PROJECT (= one CM server) the head app belongs to: deploy_project_name = the verbatim Deploy project name (spaces/caps allowed, e.g. 'Acme Web Platform'); project_slug = the space-free project folder; project_root = products/head-application/<project-slug>; cm_code_base = <project_root>/cm (NEW CM) or the operator's existing CM path (EXISTING CM, no cm/ created).",
+    "All head apps under one project share ONE cm_code_base + ONE Deploy project. Leave these null for marketplace / personal / legacy-flat products."
+  ],
+  "repo_topology": null,
+  "// repo_topology": [
+    "How this run's deployables map onto git repos, when the platform pack offers a choice (`repo_topology.values` in pack.json). Content SDK offers two and BOTH are current: 'repo-per-deployable' (the head app is its own repo, a sibling of cm/) and 'monorepo' (ONE repo at cm/ holding authoring/ beside sites/<head-app-slug>/, with one root xmcloud.build.json). Asked in the /create-prd discovery grill, at intake, alongside the deploy-project + head-app names.",
+    "RECORD IT EVEN WHEN THE OPERATOR TOOK THE DEFAULT. Every downstream stage re-resolves its pack brief with `--topology <this value>` and gets `workspace` + `repo_setup` already resolved for it; an absent field re-defaults to repo-per-deployable, so a monorepo run would provision, ship and publish against the wrong paths while every one of those stages reported green.",
+    "Leave null when the platform declares a single fixed topology (marketplace) or none. Null means 'nothing to choose', not 'not asked yet'."
+  ],
+  "work_item_type": "prd|frd|bug",
+  "// packs": "The resolved composition (platform-pack.md § 3). Written by M0 at intake. The nulls are recorded EXPLICITLY — \"platform\": \"none\" means resolved-and-the-answer-is-none, which an absent key cannot say. The slot was UNDECLARED until 2026-08-26 though step 18 and Validation both require it; runs worked only because manifest-write.mjs creates it on merge.",
+  "// packs.briefs_resolved": "APPEND-ONLY. One entry per stage that actually resolved its pack brief, written by `resolve-packs.mjs --record <workflow-dir>` as a SIDE EFFECT of composing it — an agent cannot assert a stamp without doing the work, and the resolver refuses to stamp a composition that produced an ERROR finding. `/ship` fails when a pack-declared stage has neither a stamp nor a reasoned `briefs_waived` entry (`check-brief-coverage.mjs`). Declared 2026-09-02 after the first end-to-end marketplace run resolved 5 of the 9 stages its pack declares and nothing anywhere failed — the four skipped included /test's MANDATORY live-walkthrough axis and /code-review's two CRITICAL-severity SDK skills.",
+  "// packs.briefs_waived": "APPEND-ONLY. A stage the run legitimately never reached — { stage, reason }. The reason is MANDATORY and a blank one is rejected; same rule the schema-audit / authorability / comment-density ignore files carry. Waiving a stage that DID run is the failure the coverage gate exists for.",
+  "packs": {
+    "platform": null,
+    "method": null,
+    "audience": null,
+    "resolved_by": null,
+    "resolved_at": null,
+    "signals": [],
+    "briefs_resolved": [],
+    "briefs_waived": []
+  },
+  "// workspace": "Names resolved from an active platform pack's `workspace.naming` (ONE owner — pack.json, not the command). `brand_name` is the ROOT of the derive chain: deploy_project_name / project_slug / head_app_slug all descend from it, so an unresolved brand_name leaves every one of them null rather than guessed. Declared 2026-08-27 — until then packs resolved these and the template had nowhere to put them, so each run invented a path. Slots exist for every name a shipped pack lists under `workspace.naming.tenant_facing` — `site_name` / `editing_host_name` (content-sdk) and `app_name` (marketplace) were missing until 2026-08-28, so the field the `required_at` rule is NAMED after could not be recorded where the rule checks it, and one run repurposed `brand_name` for a Cloud Portal app name.",
+  "workspace": {
+    "brand_name": null,
+    "deploy_project_name": null,
+    "project_slug": null,
+    "head_app_slug": null,
+    "project_root": null,
+    "cm_code_base": null,
+    "naming_source": null,
+    "layout_deviation": null,
+    "site_name": null,
+    "editing_host_name": null,
+    "app_name": null
+  },
+  "// variables": "Pack-declared build variables (`variables` in pack.json) once resolved — e.g. the Content SDK router, the Marketplace auth mode. Free-form by design: the owning pack defines the keys, so core cannot enumerate them.",
+  "variables": {},
+  "status": "discovery|spec_ready|architecture_ready|plan_ready|qa_ready|implementation_in_progress|implemented|tested|tested_pending_smoke|shipped|shipped_with_caveats|incomplete|failed|paused",
+  "// work_item_type — schema 8 discriminator": [
+    "work_item_type is the keystone discriminator set at intake by /create-prd (prd), /create-frd (frd), or /create-bug (bug). Every downstream command reads it to pick the weight-preset, the operator-gate count (prd=2, frd=1, bug=0+valves), and which stages to skip (bug skips architect+UI; frd skips architect+UI unless an ADR-worthy decision or UI scope exists).",
+    "SAME ARTIFACT SLOTS, DIFFERENT FILL. canonical_artifacts.prd / prd_minimal hold the SPEC and SPEC-MINIMAL regardless of type — for an FRD they point at frd-NNN.md / frd-minimal-NNN.md; for a bug at bug-NNN.md / bug-minimal-NNN.md. The slot names stay `prd` / `prd_minimal` so downstream read paths (esp. Developer-08's `prd_minimal + task_breakdown`) are unchanged. The misnomer is intentional and documented.",
+    "ID prefixes: PRD-NNN / FRD-NNN / BUG-NNN, per-product numbering namespaces. Branch names: prd-NNN / frd-NNN / bug-NNN.",
+    "PROMOTION is re-classify + enrich, never restart: when a bug's root cause is a design flaw (not-contained valve) or an FRD balloons, work_item_type flips upward and the intake doc is enriched in place (bug repro/expected become FRD problem/AC; the minimal block carries forward). Record a stage_history entry { stage: \"promoted\", outcome: \"superseded\", one_line: \"BUG-003 promoted to FRD-004 — root cause is design, not a contained fix\" }.",
+    "Legacy: schema-7-and-prior manifests have no work_item_type. Readers treat its absence as work_item_type: prd (the only type that existed)."
+  ],
+  "prd_input_mode": "prompt_only|brain_dump_only|combined",
+  "// platform_target": "RETIRED 2026-08-23 — superseded by packs{}. M0 no longer writes it. Ladder rung 2 (inherit-legacy) still READS it from pre-packs manifests to derive a composition; that is a one-way migration read, not a field to write.",
+  "task_breakdown_style": "standard|tdd",
+  "scope_dial": {
+    "rigor": "light|standard|thorough",
+    "track": "full|minimal",
+    "ui_variants": "skip|1|2|3",
+    "docs_at_ship": "auto-lite|full|none",
+    "delivery_parallelism": "serial",
+    "delivery_loop": "per_component|once",
+    "delivery_shape": "mvp-first|all",
+    "autonomy": "auto_3_gates|custom|fully_autonomous",
+    "gates": {
+      "spec": true,
+      "design": true,
+      "build": true,
+      "final": true,
+      "go_live": true
+    },
+    "extra_stops": [],
+    "content_authoring": "auto|yes|no",
+    "imagery": "mood|none",
+    "external_reference": "prohibited|cite|free",
+    "architecture_budget": "lean|mindful|deliberate",
+    "output_verbosity": "auto|minimal|verbose",
+    "gate_presentation": "<null, or { applies_to[], human_half, machine_half, machine_half_blocking } from an active pack>",
+    "dual_review": "off|on|fable"
+  },
+  "// scope_dial.gates + autonomy — configurable operator stops (schema 8+)": [
+    "gates is the SOURCE OF TRUTH for which operator review-stops pause the run; a stage's hard stop fires iff its gate token is true. Five tokens: spec (/challenge-prd close — the reviewed spec; /create-prd inherits it only when the operator skips the review), design (/design winner-pick/confirm), build (END-OF-BUILD review at /test close — the operator's single look at the whole implementation via the Components Preview page; fires on content-sdk runs, where the build phase finishes before the post-authoring final gate; INERT on non-content runs, which review the build at the final gate below), final (/test for non-content OR /test-content for content — the last look), go_live (confirm before ANY outward/real-world mutation: /provision-sitecoreai real provisioning, /implement first real-tenant write, /test Components Preview fixture composition (QA 07), /author-content + /test-content live writes, and the /publish go-live). All default true = today's behavior. The build phase is autonomous either way — build/final is the ONLY operator stop during/after the build, never a per-component or mid-build one (rule 71-delivery-loop.mdc).",
+    "extra_stops[] holds operator-named ADDITIONAL soft-stage stops promoted to hard (e.g. 'architect', 'task-breakdown', 'provision-sitecoreai', 'implement').",
+    "autonomy is a DERIVED human-readable label, not the source of truth: auto_3_gates = all five gates true + no extra_stops (default, no opinion — the '3' is legacy shorthand for the review gates; build joins them on content-sdk runs and is inert elsewhere, so the effective review-stop count per run is still ~3); fully_autonomous = all five gates false + no extra_stops (TRULY ZERO — nothing pauses, live publish + real-tenant boundaries proceed unattended); custom = any other combination. Legacy manifests without the build token treat it as true (default). Legacy manifests with autonomy: extra_stops map to custom with the listed stops.",
+    "GENUINE BLOCKERS ARE NOT GATES and always stop regardless of the gate set: a stage that cannot complete (build/publish-job failure), the bug can't-reproduce / not-contained valves, and any [BLOCKER]-tagged Operator Checkpoint item. fully_autonomous removes the REVIEW stops + boundary confirms, not error handling — there is no autonomous path past a hard failure, so it is surfaced.",
+    "delivery_loop sets the build-phase TEST-LEG cadence (rule 71-delivery-loop.mdc). CHANGED 2026-07-29: the dial moves the QA leg ONLY — /code-review runs per component tranche under BOTH values (it is diff-local and cheap; batching it saves nearly nothing and lets a defect sit under N tranches of new work, whereas /test is integration-scoped and O(tranches x full-build) is the real cost driver). per_component (DEFAULT, 'standard') = the full {Developer->Code-Reviewer->QA} triad per tranche, looping back to the Developer on a Critical/Major or a test fail before the next component starts (best quality — small diffs, every component proven green; more time + tokens); once = a {Developer->Code-Reviewer} PAIR per tranche (implement -> review its diff -> bounded-5 loop-back -> COMMIT + RECORD at review-clean), then a SINGLE /test over the whole build once every tranche is review-clean, with bounded (3-cycle) whole-build loop-back whose fix diff is code-reviewed as normal (cheaper — one full suite/lint/build instead of N — at the cost of cross-component regressions surfacing late). Converges with delivery_parallelism=parallel, which is review-local + one post-merge QA by construction. INERT on single-tranche runs — a bug / small FRD / freeform run collapses to one implement→review→test pass regardless of this dial. Absent/legacy ⇒ per_component.",
+    "content_authoring gates the Content SDK content phase (/discover-components → /author-content ⇄ /test-content → /publish): auto (default) = phase runs iff the active platform pack declares the content_authoring dial; yes = force the content phase; no = skip it entirely (/ship is terminal, the content-phase commands are not recommended).",
+    "imagery is the empty-Image-field commissioning tier for /author-content (Sitecore channel), meaningful only when content_authoring runs: mood = Claude-generated abstract/decorative SVG/gradient/generative-pattern imagery (no external service, no per-image cost); none = leave empty Image fields empty (CSS fallback). Absent/legacy ⇒ mood.",
+    "external_reference governs whether the run may consult PEER PRODUCTS in this repo for reference implementations: prohibited = build only from this product's own code + sanctioned shared knowledge (STOP-and-ask if a sibling would solve a wall); cite-required (default) = reference allowed but every borrowed peer-product pattern is logged (what + from where) + a reliance count reported at /ship; free = no logging. Never restricts the sitecore:* skills, node_modules .d.ts (rule 40), or the shared cm/. See rule 20-boundaries + glossary 'External reference'. Absent/legacy ⇒ cite.",
+    "output_verbosity (rule 73-output-verbosity.mdc) controls MID-TURN chat narration, not artifacts on disk: asked at /create-prd Call 3 (Narration). auto (DEFAULT / Recommended) = each agent keeps its frontmatter pin (execution roles minimal, planning roles verbose) UNLESS autonomy is fully_autonomous, which forces minimal on every spawn; minimal = force minimal everywhere (cheapest autonomous runs); verbose = force verbose everywhere (debug / watch a run). Spawn prompts MUST include 'Output Level: <minimal|verbose>'. Slash override: verbosity=auto|minimal|verbose. Absent/legacy ⇒ auto."
+  ],
+  "content_policy": {
+    "enforce_placeholder_restrictions": true
+  },
+  "// content_policy — guidance (schema 8+)": [
+    "Set at /author-content kickoff for the Sitecore channel (the only channel with placeholders); inherited by /test-content. Absent/null on non-content runs and on legacy manifests — readers treat absence as enforce_placeholder_restrictions: true (follow the rules, the safe default).",
+    "enforce_placeholder_restrictions (bool, default true): when true, the Content Author (14) composes ONLY renderings that the Marketer MCP `get_allowed_comps_by_ph(pageId, placeholder)` returns as allowed for the target placeholder — a desired-but-disallowed rendering is substituted with an allowed alternative or surfaced to the operator, never force-placed. When false (operator opted out), the author places renderings by best-fit regardless of the allowed set, but STILL records each placement that falls outside the allowed set as a deviation (so /test-content and the operator can see it).",
+    "/test-content structure axis reads this flag: an out-of-allowed-set placement is a MAJOR structure finding under enforce=true, and a recorded (accepted) deviation under enforce=false."
+  ],
+  "ui_design": {
+    "proposal_count": 1,
+    "divergence": "subtle|moderate|radical",
+    "variant_paths": [],
+    "selected_variant_path": null
+  },
+  "source": {
+    "kind": "raw_idea|file|url|mixed",
+    "values": [
+      "<raw idea, file path, or public URL>"
+    ],
+    "analysis_mode": "greenfield|rebuild",
+    "source_analysis_artifact": "products/<product-slug>/project-planning/source-analysis/source-analysis-<timestamp>.md",
+    "content_dump": null,
+    "assets_bundle": null,
+    "clone_scope_mode": "none|home_plus_top5_primary_nav|full_website_clone",
+    "assets_root": null,
+    "nav_depth": null,
+    "parity_threshold": null,
+    "parity_includes_authorability": null,
+    "reproduce_improve_drop": null,
+    "brand_deltas": null,
+    "portability_caveats": null,
+    "clone_handover_artifact": null,
+    "parity_loop_enabled": false,
+    "parity_scope_mode": null,
+    "parity_scope_urls": [],
+    "parity_max_runs": "<from the active method pack's exit_criteria — do not invent>",
+    "parity_runs_executed": 0,
+    "parity_rounds_voided": 0,
+    "parity_instrument_hash": null,
+    "parity_panel_verdict": null,
+    "parity_axis_spread": null,
+    "parity_coverage_residual": null,
+    "parity_stop_reason": null
+  },
+  "// source — clone scope guidance (schema 8+)": [
+    "clone_scope_mode clarifies delivery intent when source-analysis ran in rebuild mode.",
+    "Use home_plus_top5_primary_nav for a bootstrap parity slice; use full_website_clone when the run's definition of done is exact full-clone parity (route + component + content).",
+    "When clone_scope_mode is full_website_clone, source-analysis should emit clone_handover_artifact and downstream planning commands (/architect, /task-breakdown) must load source_analysis_artifact + content_dump + assets_bundle + clone_handover_artifact.",
+    "Use none when source-analysis did not run or analysis_mode is greenfield."
+  ],
+  "intake": {
+    "source": "local|github|null",
+    "task_id": "<TASK-NNN for local source, else null>",
+    "issue_number": "<github issue number for github source, else null>",
+    "routed_by": null,
+    "// note": "Set when the run was sourced via /triage (intake-pipeline). /ship reads this to close out the source at ship close (10-ship.md § 15a-intake for local, step 18 for github). Null/absent for runs started directly via /create-prd|frd|bug.",
+    "// routed_by": "Which command routed this work item here (/triage, /start-flow, or null for a direct /create-*). Was hardcoded to \"/triage\" until 2026-08-28, so every --init seeded manifest claimed a provenance it did not have."
+  },
+  "canonical_artifacts": {
+    "brain_dump": "products/<product-slug>/project-planning/brain-dumps/brain-dump-<timestamp>.md",
+    "prd": "products/<product-slug>/project-planning/specs/prd-NNN.md",
+    "prd_minimal": "products/<product-slug>/project-planning/specs/prd-minimal-NNN.md",
+    "adrs": [],
+    "architecture": null,
+    "baseline": null,
+    "task_breakdown": "products/<product-slug>/project-planning/plans/task-breakdown-<timestamp>.md",
+    "task_breakdown_pre_qa": null,
+    "qa_report": null,
+    "code_review_report": null,
+    "test_report": null,
+    "content_test_report": null,
+    "interrogation_ledger": null,
+    "challenge_ledger": null,
+    "content_model": null,
+    "content_examples": null,
+    "ship_report": null,
+    "friction_log": null,
+    "status_index": "products/<product-slug>/project-planning/STATUS.md"
+  },
+  "// canonical_artifacts — schema-7 deltas": [
+    "implementation_runbook REMOVED in schema 7. The task breakdown's § 0 (Quick orientation) now carries target directory + canonical inputs + delivery order. Reading a schema-6 manifest? Treat any present implementation_runbook entry as legacy/archived; do not produce new ones.",
+    "baseline ADDED in schema 7. Optional path to project-planning/baseline.md (architecture baseline) promoted from stable ADRs after the 5-ADR threshold per `/architect` baseline-promotion gate. Null when no baseline has been promoted.",
+    "status_index ADDED in schema 7. Path to project-planning/STATUS.md (per-product PRD index). Auto-generated by /create-prd kickoff and /ship close."
+  ],
+  "friction_log": {
+    "path": "products/<product-slug>/project-planning/workflow/friction-log-<timestamp>.md",
+    "min_severity": "medium",
+    "enabled": true
+  },
+  "stage_history": [
+    {
+      "stage": "discovery|discovery_summary|spec_ready|spec_challenged|promoted|architecture_ready|adr_density_check|baseline_promoted|ui_ready|plan_ready|qa_ready|probe|implementation_in_progress|implemented|code_reviewed|tested|documented|doc_audit|tiering_verified|tiering_backfilled|shipped|merged|resumed|provisioned|content_sdk_closeout|components_discovered|content_authored|content_tested|published|source_ready",
+      "agent": "<agent-id, e.g. 02-product-manager>",
+      "tranche": "<optional — the tranche/component this entry closes, e.g. 'C7-faq'. Per-tranche detail belongs HERE, never in the stage name.>",
+      "entered_at": "<ISO-8601 timestamp>",
+      "exited_at": "<ISO-8601 timestamp or null if current>",
+      "outcome": "completed|failed|skipped|superseded|partial",
+      "one_line": "<≤140 chars, at-a-glance — e.g. 'PRD-002 discovery; 4 questions + operator picked fake-premium direction'>",
+      "deliverables": [
+        "<repo-relative artifact path written/updated by this stage>"
+      ],
+      "escalations": [
+        {
+          "severity": "info|warn|blocker",
+          "kind": "decision|assumption|concern|question",
+          "item": "<one-line>",
+          "resolved_at": "<ISO-8601 timestamp or null>"
+        }
+      ],
+      "error": null,
+      "notes": null
+    }
+  ],
+  "// stage_history — schema 7 contract": [
+    "Schema 7 replaces the prose `notes` essay with structured fields. Required: stage, agent, entered_at, exited_at, outcome, one_line, deliverables. Optional: escalations[] (mirror of operator_attention items raised at this stage), error (on failure), notes (free-form ESCAPE HATCH — keep ≤2 sentences; prefer one_line + escalations).",
+    "`outcome` values:",
+    "  completed — stage finished as intended",
+    "  failed    — stage hit an unrecoverable error; error field populated",
+    "  skipped   — stage was explicitly bypassed (e.g. user said 'skip discovery')",
+    "  superseded — a later stage replaced this stage's outputs (e.g. PRD revision after critical review)",
+    "  partial   — stage completed but with caveats (e.g. some tasks deferred; one_line states what)",
+    "`one_line` is the at-a-glance summary /status reads. Keep tight; details belong in deliverables[] and the artifact itself.",
+    "`deliverables[]` lists EVERY file the stage wrote or updated by repo-relative path. /status uses this to surface 'what changed at this stage'.",
+    "`escalations[]` mirrors operator_attention entries raised AT this stage. The top-level operator_attention[] is still the SoT for cross-product roll-up; this per-stage slice is for forensic queries ('what concerns did /architect raise?').",
+    "Backward compatibility: schema-6 manifests have stage_history entries with a freeform `notes` field instead of `one_line` + `deliverables` + `escalations`. Readers should treat schema-6 `notes` as the one_line equivalent and skip the structured fields.",
+    "The `stage` enum above is CLOSED and is enforced by assert-manifest-pointers.mjs. A command name is not a stage name: `implement`/`code-review`/`test`/`ship` are ERRORs naming the canonical spelling. Adding a name means PRESCRIBING it at the stage that writes it — six names (provisioned, components_discovered, content_authored, merged, probe, implementation_in_progress) were in wide use for a month while no file under .agent/ told anyone to write them, which is what produced 65 distinct stage names across 16 runs.",
+    "`tranche` (optional) is where per-tranche detail goes. Encoding it in the stage name instead (tranche_2_app_shell, code_reviewed_phase3_close) makes the run unqueryable — one build produced 30 such names, after which 'did /test pass on this run?' had no answer."
+  ],
+  "implementation": {
+    "mode": "pipeline|freeform",
+    "target_directory": "<workspace root|site|app|user-specified path>",
+    "branch_name": "<prd-NNN|user-chosen-name|null>",
+    "git_remote": "url|local|create — operator-chosen remote strategy asked upfront at create-prd sec 10a: url=stakeholder-provided URL, local=no remote (push/PR skipped at /ship), create=gh repo create matching the sibling head-app naming+visibility. Absent/legacy => treat as url.",
+    "remote_url": "<GitHub clone URL: stakeholder-provided (url), auto-created (create), or null (local / repo pre-existed)>",
+    "status": "not_started|in_progress|completed|failed",
+    "resumed_from_stage": null
+  },
+  "next_action": "<plain-language next step, e.g. 'run /code-review scoped to the Hero component tranche' | 'implement the Footer component tranche' | '/ship'>",
+  "// next_action — crash-resilience / resume field (schema 8+)": [
+    "Written by EVERY stage/tranche/component close (alongside the stage_history entry + git commit — the per-unit checkpoint, rule 71-delivery-loop.mdc / 72-orchestrator-discipline.mdc). States the explicit next step in plain terms so a fresh orchestrator (after a crash/disconnect) knows exactly where to continue WITHOUT re-deriving it from context.",
+    "/resume reads this after reconciling disk + git against the manifest (see .agent/commands/project/resume.md): diff reality → update the manifest to match → continue from next_action.",
+    "During the per-component delivery loop, next_action names the current component + leg (e.g. 'code-review the Hero tranche' → 'test the Hero tranche' → 'implement the Footer tranche'), so a mid-loop crash resumes the exact triad member.",
+    "Backward-compatible: absent on legacy (schema-7-and-prior) manifests and on runs that predate this field — readers treat its absence as 'resume from the last stage_history entry' (the pre-next_action behavior). Never load-bearing for existing runs."
+  ],
+  "smoke_outcomes": {
+    "<task-id-or-step-label>": {
+      "required_by": "<PRD § release plan | architecture § Y | manual >",
+      "description": "<one-line: e.g. 'Install in real SitecoreAI tenant; verify all 3 cards load with non-empty Live URL'>",
+      "outcome": "pending|passed|failed|skipped|pass_with_caveats",
+      "recorded_at": "<ISO-8601 timestamp or null>",
+      "evidence": "<screenshot path | URL | console transcript | null>",
+      "notes": "<freeform; e.g. operator preconditions met or unmet>",
+      "category": "host_frame_smoke|live_walkthrough|deploy|registration|other"
+    }
+  },
+  "// smoke_outcomes — category guidance": [
+    "host_frame_smoke: 5-axis pixel comparison vs POC (canonical, see the marketplace-sdk-host-frame-testing skill). Verifies 'did we ship the design'.",
+    "live_walkthrough: editor-driven exploration of the installed app on a real tenant for 5+ minutes. Verifies 'does the design actually work for the user'. REQUIRED when the stage brief declares requires_smoke with a host-framed visual_harness, before status can be 'shipped' (vs 'shipped_with_caveats'). Component Usage Atlas's S8/S9/S10/S11 — and S22/S23 — were all live-walkthrough findings that the host-frame smoke could not have caught.",
+    "deploy: production deployment outcome (Vercel, etc.).",
+    "registration: marketplace registration outcome (Cloud Portal app entry + scopes)."
+  ],
+  "operator_attention": [
+    {
+      "stage": "<command-or-stage name where raised, e.g. 'architect', 'task-breakdown', 'implement'>",
+      "severity": "info|warn|blocker",
+      "kind": "decision|assumption|concern|question|resolved",
+      "item": "<one-line description matching the Operator Checkpoint bullet>",
+      "raised_at": "<ISO-8601 timestamp>",
+      "resolved_at": "<ISO-8601 timestamp or null>",
+      "references": "<optional: prior raised_at this entry resolves, or artifact path>"
+    }
+  ],
+  "// operator_attention — guidance": [
+    "Mirrors the Operator Checkpoint block (see .agent/glossary.md § Operator Checkpoint) so /status can roll up unresolved attention items across products.",
+    "Append-only: never edit a prior entry in place. To mark an item resolved, append a new entry with kind: 'resolved' and references: <prior raised_at>.",
+    "Severity guidance: 'blocker' means the next stage cannot proceed; 'warn' means the run can continue but the operator should know; 'info' is FYI.",
+    "Kind values map 1:1 to the Operator Checkpoint sections: decision → Decisions needed, assumption → Assumptions made, concern → Concerns / risks, question → Open questions, resolved → resolution of a prior entry."
+  ],
+  "archive": {
+    "// guidance": [
+      "RETIRED (schema 8+). Both archive triggers are gone: supersession archiving (moved a superseded task-breakdown / ui-design / architecture into archive/ at the next stage write) and the post-ship scaffolding sweep (/ship step 15b). Neither moves anything now, and notes.archive_skip is retired with them.",
+      "Replaced by ARTIFACT DURABILITY TIERING, enforced declaratively by project-planning/.gitignore (seeded at /create-prd step 4a from .agent/templates/project-planning-seed/.gitignore). Same intent, no file movement.",
+      "TIER 1 — TRACKED (the durable record): spec (prd/frd/bug-NNN.md), ADR/, baseline.md, plans/ship-report-*.md, plans/*probe-findings*.md, captures/, spike-notes/, smoke/, source-analysis/, STATUS.md, tasks.md, workflow/run-<id>.json.",
+      "TIERS 2-4 — UNTRACKED (produced and read by the pipeline exactly as before, never committed): *-minimal-NNN.md (compiler output); task-breakdown / qa-report / code-review / test-report, architecture/, brain-dumps/, ui-design/, design-prototypes/ (run-scoped working material); workflow/current-run.json (mutable machine state — byte-identical to the latest run-<id>.json, which IS tracked).",
+      "canonical_artifacts.* paths are therefore STABLE — no stage rewrites them to an archive location, so a later /document or design-polish run resolves the same path the producing stage wrote.",
+      "Legacy products may still have an archive/ folder holding durable artifacts the retired sweep trapped there (probe findings, smoke notes, even ship reports). /ship § 15b-promote rescues those back to plans/ before the folder is untracked. See .agent/manifests/README.md § 'Artifact durability tiers'."
+    ]
+  },
+  "// notes": "OBJECT, not an array. 17 contract citations address it as notes.<key> — base_branch, program, sdk_surface_split, split_override, critical_review, scope_dial, composition_detected_from and more. The template declared an ARRAY, which produced real manifests of both shapes in the same workspace. Corrected 2026-08-24 after a throwaway run had to pass --replace notes to write a documented key.",
+  "notes": {},
+  "// notes.gates": [
+    "APPEND-ONLY record of the mechanical gates a stage ran, and what they returned. Shape: notes.gates.<gate-name>[] = [{ stage, exit, at, override_reason? }].",
+    "Today only `manifest_pointers` is required, and only at /ship. Every stage that runs assert-manifest-pointers.mjs appends its result; /ship ERRORs when the array is empty, or when any recorded entry has a non-zero exit and no override_reason.",
+    "WHY: nine commands cited that script as an 'exits 0' criterion and a bug shipped 2026-09-02 through a /ship where it exits 1. Nothing recorded whether the gate had been run, skipped, or deliberately overridden, so a prose exit criterion was indistinguishable from no criterion at all — rule 88's shape applied to a gate rather than to a declaration. An override stays legal; it just cannot be silent.",
+    "Products are separate git repos, so this repo's pre-commit hook cannot see a product manifest. The manifest is the only surface both sides share, which is why the record lives here rather than in a hook."
+  ],
+  "discovery_mode": "interactive|relayed|unattended",
+  "discovery_questions_asked": 0,
+  "// discovery_mode": "How the grill actually reached a human, if it did. `unattended` MUST carry discovery_questions_asked: 0 — a non-zero count there means answers were invented, which the interrogation protocol prohibits absolutely. Added 2026-08-26 after six runs each improvised their own free-text note because no field existed, and a fabricated ledger was indistinguishable from a real one on the manifest.",
+  "// source.portability_caveats": "NULL, never []. `method:clone` states: \"An empty caveat list is a CLAIM, not a default. On a real clone, empty is evidence the check did not run.\" The template shipped `[]` for one day (2026-08-27), so --init wrote the exact value the owning pack forbids and a run that left it would have read as \"we checked and found none\" while having asked nobody."
+}

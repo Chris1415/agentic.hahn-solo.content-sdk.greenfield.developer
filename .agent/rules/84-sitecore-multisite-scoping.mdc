@@ -1,0 +1,67 @@
+---
+description: In one SitecoreAI site collection, renderings and datasource/project templates are COLLECTION-scoped while Available Renderings, Headless Variants, Page/Partial Designs, Placeholder Settings and Styles are SITE-scoped — so a second site in an existing collection reuses the data model for free and author isolation is already guaranteed. Also carries the Datasource Location hard-pin trap and the fork-don't-mutate rule for shared renderings.
+alwaysApply: true
+---
+
+# Multi-Site Item Scoping — What Is Shared, What Is Not
+
+Load-bearing for any decision about adding a site to an existing tenant: collection placement,
+serialization grain, component reuse, and visual divergence all follow from this table.
+
+| Item type | Scope |
+|---|---|
+| Renderings | **COLLECTION** |
+| Datasource / project templates | **COLLECTION** |
+| `Available Renderings` | **SITE** |
+| `Headless Variants` | **SITE** |
+| Page / Partial Designs, Placeholder Settings, Styles | **SITE** |
+
+## Consequences — do not re-derive these, they follow from the table
+
+1. **A second site in an existing collection reuses the data model by construction.** Same rendering
+   items, same datasource templates, zero new templates for reused components.
+2. **Author isolation does not require a separate collection.** The site-scoped items above cannot leak
+   into another site's Pages UI; the gate is `Available Renderings`, which is per-site. Choosing a new
+   collection to buy isolation pays a full clone of the item estate plus a permanent schema-drift tax
+   for something the site scope already provides.
+3. **Visual divergence is not a Sitecore problem when the new site has its own head app.** A reused
+   rendering renders through that app's own component code, so a drastically different look costs
+   CSS/token work only. **Headless Variants are not the divergence mechanism** — they are for a changed
+   *field set or arrangement*, or to offer authors a choice within one site. Cheapest first:
+   **skin → Headless Variant → new rendering.**
+4. **Serialization grain is the COLLECTION, not the site.** A new site in an existing collection gets a
+   **site include added to that collection's existing module** — never a second module for the same
+   collection, which collides on paths the first module already owns with `CreateUpdateAndDelete`. A new
+   *collection* gets a new module, and that module declares a distinct `items.path` or it shares the
+   default serialization root and `ser validate` reports the sibling's items as orphans to delete. On a
+   shared `cm/`, never run an unscoped `ser` op — always `-i Project.<Brand>`.
+
+## The hard-pin trap — audit before reusing any rendering
+
+"Renderings are collection-scoped, so reuse them" is **not** safe as a blanket statement. Each
+rendering's **`Datasource Location`** must be checked first:
+
+- **site-relative** (`query:$site/...`) → resolves per-site, safe for N sites;
+- **hard GUID** → resolves to one site's `/Data` forever. Reusing it on a second site points the Pages
+  datasource picker at the **first** site's `/Data`, and an author silently writes the new site's
+  content into the old site's tree.
+
+**Nothing catches this** — no unit test, no code review, no build gate, no `ser validate`. It is an
+authoring-path defect. Chrome (header/footer/nav) is the likely offender: built first, when only one
+site existed. Reused renderings also need one `<X> Folder` item per rendering under the new site's
+`/Data`, or the Pages picker is empty and reads as a broken component.
+
+## Fork, don't mutate — and the one exception
+
+**Default: do not mutate a shared collection-scoped rendering a live site depends on.** Create new
+per-purpose renderings with a site-relative `Datasource Location`, name-prefixed so the shared folder
+stays legible, and leave the original defect filed as its own work item in the owning product.
+
+- **Unattended / `fully_autonomous` / any agent-initiated run → fork, no exception.** The failure is
+  silent and unrecoverable, and no gate catches it.
+- **Remediating the shared rendering in place is permitted only** with an operator present, a captured
+  baseline of the live site, and a non-prod rehearsal — and it is then a `go_live`-class decision,
+  because it is a real-tenant mutation with blast radius on a live property.
+
+Verify mechanically either way: assert no datasource item for the new site exists anywhere under the
+old site's path.

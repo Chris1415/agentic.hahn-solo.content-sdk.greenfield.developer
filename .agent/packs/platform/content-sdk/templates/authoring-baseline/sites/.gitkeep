@@ -1,0 +1,8 @@
+# Placeholder so this directory survives git and is carried by the template copy.
+#
+# `sites/` supports the MONOREPO topology (B): head apps live at sites/<head-app>/
+# inside the authoring solution, and xmcloud.build.json carries BOTH
+# renderingHosts.<key>.path = "./sites/<head-app>" AND authoringPath = "./authoring".
+#
+# The default topology (A) puts each head app in its own repo as a sibling of cm/,
+# leaving this directory unused. See ../README.md for the field-by-field difference.

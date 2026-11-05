@@ -1,0 +1,47 @@
+{
+  "_about": "The one data file behind the per-stage status table in an export's README. export-flow.mjs reads it and FAILS if a command the flow ships has no row here. A status is a claim about what has actually been run, so a row changes only when a run changes it.",
+  "flow": "content-sdk.greenfield.developer",
+  "as_of": "2026-11-05",
+  "vocabulary": {
+    "ran-from-export": "Run from a generated export of this flow, and it worked.",
+    "source-only": "Run in the private source repository this export is generated from (where the pipeline has shipped real sites), but never from an export.",
+    "not-run": "No run is on record. It may work; nothing here says it does."
+  },
+  "fallback": {
+    "status": "not-run",
+    "why": "No run of this flow from an export is on record. Only content-sdk.greenfield.developer has been run, and only as far as the table of that repository says."
+  },
+  "stages": [
+    { "command": "prime", "status": "ran-from-export", "summary": "Read-only reconnaissance of the repository; writes one planning note.", "why": "Ran from an earlier export and worked. Needs no tenant and no credentials." },
+    { "command": "start-flow", "status": "not-run", "summary": "Front door for new work that arrives as a prompt: asks the weight (PRD, FRD or bug) and dispatches.", "why": "No run from an export is on record." },
+    { "command": "rubber-ducky", "status": "not-run", "summary": "Divergent brainstorming that ends in a concept brief, before any spec.", "why": "No run from an export is on record." },
+    { "command": "create-prd", "status": "ran-from-export", "summary": "Scope questions, then a PRD, ADRs and a run manifest; chains into the spec review.", "why": "Ran from an earlier export and worked. Needs no tenant; it creates a local git repository and branch for the product." },
+    { "command": "create-frd", "status": "not-run", "summary": "The same intake for a bounded feature: a feature spec instead of a full PRD.", "why": "No run from an export is on record." },
+    { "command": "create-bug", "status": "not-run", "summary": "The same intake for a defect: a bug report, a failing regression test and a thin task list.", "why": "No run from an export is on record." },
+    { "command": "challenge-prd", "status": "source-only", "summary": "Cold-read gap analysis of the spec, then questions to the operator; carries the first hard stop.", "why": "Chained from /create-prd. It runs in the private source; no separate record of an export run." },
+    { "command": "discover-sitecoreai", "status": "not-run", "summary": "Read-only inventory of an existing SitecoreAI site, for builds that extend one.", "why": "Needs a SitecoreAI tenant and credentials. No run from an export is on record." },
+    { "command": "architect", "status": "source-only", "summary": "Architecture blueprint and ADRs; sizes the deliverable and proposes a smaller first cut when it is large.", "why": "No run from an export is on record. Runs in the private source." },
+    { "command": "design", "status": "source-only", "summary": "One to three divergent UI variants as clickable prototypes, a fresh critic per prototype, and the design hard stop.", "why": "Attempted from an earlier export and blocked, so it counts as not run from an export: the bare name /design collided with a Claude Code built-in, and the third-party design skills it loads are never published. This export tells you to type /project:design and gives install pointers and a fallback (.agent/packs/platform/content-sdk/reference/design-skills.md); that fix has not been re-run." },
+    { "command": "task-breakdown", "status": "source-only", "summary": "A task list with an execution contract and tests written first, split into component tranches.", "why": "No run from an export is on record. Runs in the private source." },
+    { "command": "provision-sitecoreai", "status": "source-only", "summary": "Creates the SitecoreAI project pieces: a content-management environment, an editing host, a site, and the baseline code.", "why": "Never run from an export. Needs a SitecoreAI organisation and an organisation-level automation client, and it changes a real tenant. Runs in the private source." },
+    { "command": "implement", "status": "source-only", "summary": "Builds one component tranche at a time against the task list, with probe tranches first.", "why": "Never run from an export. Runs in the private source." },
+    { "command": "code-review", "status": "source-only", "summary": "Critical review of the change against the spec and the task list, then fixes.", "why": "Never run from an export. Runs in the private source. The bare name collides with a Claude Code built-in: type /project:code-review." },
+    { "command": "test", "status": "source-only", "summary": "Test execution and smoke checks, then fixes; the implement, review and test loop repeats up to five times.", "why": "Never run from an export. Runs in the private source." },
+    { "command": "ship", "status": "source-only", "summary": "Ship report, short README and changelog, then a commit, a push and a pull request. A human reviews and merges.", "why": "Never run from an export. Needs a GitHub remote and the gh CLI; with a Vercel project it also sets the deployment variables. Runs in the private source." },
+    { "command": "discover-components", "status": "not-run", "summary": "Builds a visual map of the components a site really has, for the content author.", "why": "Needs a running editing host that serves this run's code. No run from an export is on record." },
+    { "command": "author-content", "status": "source-only", "summary": "Writes page content in the brand voice the spec defines and lands it on preview through the Marketer MCP.", "why": "Never run from an export. Needs a SitecoreAI tenant and the Marketer MCP, and it writes to the tenant. Runs in the private source." },
+    { "command": "test-content", "status": "source-only", "summary": "An independent audit of the authored content as it renders; carries the final hard stop.", "why": "Never run from an export. Needs the tenant and the editing host. Runs in the private source." },
+    { "command": "publish", "status": "source-only", "summary": "The one step that goes live: publishes, pulls the content back into git, redeploys on the live context, runs the delivery checks.", "why": "Never run from an export. Needs the tenant, Vercel and credentials, and it changes a live site. Two helper scripts it cites are not shipped (see the stage). Runs in the private source." },
+    { "command": "doctor", "status": "not-run", "summary": "Read-only health check of one SitecoreAI environment, site or page.", "why": "Needs a tenant. No run from an export is on record. The bare name collides with a Claude Code built-in: type /project:doctor." },
+    { "command": "status", "status": "not-run", "summary": "Read-only overview of every product: stage, branch, open gates.", "why": "No run from an export is on record. The bare name collides with a Claude Code built-in: type /project:status." },
+    { "command": "resume", "status": "not-run", "summary": "Reconciles an interrupted run against what is on disk and in git, then continues.", "why": "No run from an export is on record. The bare name collides with a Claude Code built-in: type /project:resume." },
+    { "command": "probe", "status": "not-run", "summary": "Confirms or refutes one load-bearing assumption against the real world before anything is built on it.", "why": "No run from an export is on record." },
+    { "command": "research", "status": "not-run", "summary": "On-demand research with sources, through the research sidecar agent.", "why": "No run from an export is on record." },
+    { "command": "triage", "status": "not-run", "summary": "Picks the next work item from a per-product queue file or from GitHub issues.", "why": "No run from an export is on record." },
+    { "command": "commit-message", "status": "not-run", "summary": "Drafts a commit message that follows the repository convention.", "why": "No run from an export is on record." },
+    { "command": "cleanup-project-planning", "status": "not-run", "summary": "Deletes the generated planning artifacts of one product so you can start over.", "why": "No run from an export is on record. Destructive for that product's planning folder." },
+    { "command": "document", "status": "not-run", "summary": "A full documentation pass: README, architecture, decisions, changelog.", "why": "No run from an export is on record." },
+    { "command": "source-analysis", "status": "not-run", "summary": "Crawls a public site and records what a rebuild would have to match.", "why": "Part of the clone flow only. No run from an export is on record." },
+    { "command": "migrate", "status": "not-run", "summary": "Recreates an existing site on SitecoreAI from code or from an install package.", "why": "Part of the clone flow only. No run from an export is on record." }
+  ]
+}

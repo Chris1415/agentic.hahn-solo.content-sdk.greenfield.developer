@@ -1,0 +1,12 @@
+---
+description: Core agent rules (always on)
+alwaysApply: true
+---
+
+# Core Rules
+- Read AGENTS.md and the PRD before coding.
+- Do not expand scope without updating the PRD.
+- Deliver what was asked, at the scope intended. Make routine judgment calls yourself, and check in only when different readings of the request would lead to materially different work. If the request seems mistaken or a better approach exists, say so in a sentence and continue as asked rather than quietly narrowing, widening or transforming it. Finish the whole task, and stop short of actions clearly beyond it.
+- Prefer small, reviewable changes.
+- Always run tests/lint before declaring done.
+- If uncertain, add TODO and stop (do not guess).

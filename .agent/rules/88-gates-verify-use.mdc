@@ -1,0 +1,105 @@
+---
+description: A gate must fail when a thing exists but nothing uses it, and a contract must prescribe the record it demands. Structural green is not functional green — a declaration nothing reads, a citation to something nobody produces, a template that never renders and a prohibition with no prescribed record all pass every check that verifies SHAPE.
+alwaysApply: true
+---
+
+# Gates Verify USE, Not Shape
+
+## The rule
+
+When you write a gate — a validator check, a test, a golden, an audit — ask one question before
+you finish:
+
+> **Would this fire if the thing existed, was perfectly well-formed, and nothing consumed it?**
+
+If the answer is no, the gate verifies **shape**. Shape is the cheap half. Every defect that
+survives a green suite lives in the other half: whether anything actually **uses** the thing.
+
+The same rule applies when you write a **contract** (a command file, a pack declaration, a
+protocol): a prohibition without a prescribed record is not a contract, it is an invitation to
+improvise — and two readers will improvise differently.
+
+## Why this is a rule and not a preference
+
+Measured on 2026-08-23, during one refactor, **five separate defects of this exact shape**, each
+past a green validator and a green suite:
+
+| Gate reported green because | The defect was |
+|---|---|
+| every declaration was individually correct | the ordered SEQUENCE never mentioned the step, so nobody did it |
+| the export was well-formed and validated | its resolver had never once been RUN inside it |
+| every path reference resolved | a template's placeholders were escaped, so the prose never RENDERED |
+| the citation was valid and its target existed | nothing told the reader how to PRODUCE the thing cited |
+| the privacy boundary failed closed, and ran twice | it matched file PATHS while the secret sat inside a file |
+
+A sixth, from the contract half: a command said *"report it rather than detect"* and never said what
+to **write**. Two agents, the same contract, two different ad-hoc record shapes — one of which
+recorded a value every downstream stage would have believed.
+
+## Applying it
+
+**Writing a gate.** Pair every "the thing is present" assertion with a "the thing is reached"
+assertion. `pack.rules[]` listed rules for months while nothing read the key; the list was even
+wrong (4 of 7) and no one noticed, because being *well-formed* was all anything checked.
+
+**Writing a contract.** Every prohibition names its replacement record. Every citation of a
+generated artefact says how to generate it. Every declaration names its consumer, or it is
+decoration.
+
+**Writing a projection or generator.** Write the output AFTER everything it interpolates exists.
+A projection placed beside its siblings rather than after its inputs renders `undefined`, or
+silently falls back to an empty default and states the opposite of the truth.
+
+**Reviewing a green run.** "All checks passed" answers the question the checks were written to ask.
+It never answers the question you have in mind. Before trusting it, name one way the system could be
+broken that the suite structurally cannot see — then decide whether that way matters.
+
+## The cheapest counter-move
+
+**Run the thing.** Four of the six were found by execution, not inspection: a pipeline run inside an
+export, a resolver run inside an export, a differential run of two agents, a brief rendered and read.
+A gate is an argument that something is correct; running it is evidence. Prefer evidence, and when
+a subject cannot be run, say so plainly rather than letting a structural pass stand in for it.
+
+## Closing a finding — ask what else the argument covers
+
+**A fix that lands on the INSTANCE rather than the CLASS is this framework's dominant recurring
+defect.** Measured 2026-09-02/04 across two dogfood runs: **six instances, three different authors,
+three different files, inside roughly 72 hours** — and in one case the correct fix sat **ten lines
+away in the same JSON object**. "Nobody knew better" is not available as a cause.
+
+| The lesson | Applied to | Not applied to |
+|---|---|---|
+| a pack may declare an incapacity | `per_tranche_visual_compare` | the smoke leg 10 lines away in the same file |
+| a count is forgeable, so record the process | `discovery_mode` records *who answered* | not whether the floor held, nor whether the operator was asked |
+| declare the gate you cannot satisfy | the per-tranche compare | every other unsatisfiable gate |
+| give `/design` the skills its constraint needs | 2 of the 3 | the one carrying the numbers |
+| a success message is not evidence about content | a subagent's `Write` | the author's own heredoc, two hours later |
+| **the same trap again** | the gate | **the substitute, which was itself unsupported** |
+
+**Every instance was individually reasonable and complete with respect to the defect that prompted
+it.** Nobody decides to fix only the instance. That is the mechanism, not an excuse — and it is why
+the counter-move **cannot be a virtue**:
+
+> **"What else does this argument cover?" is a STEP, not a habit.** A habit is exercised when someone
+> remembers. A step runs every time.
+
+Proof that memory is insufficient: an agent **writing the section that described this defect
+committed it in the same pass** — it corrected two of the three places a false claim appeared and
+left the third. It survived the whole analysis and surfaced only through an unrelated grep.
+
+**Before closing any finding, do all four. They are cheap and they are mechanical:**
+
+1. **Grep for the pattern you just corrected**, across the whole file and then the whole tree. Not
+   for the *symptom* — for the *shape*. If you fixed a false claim, find every copy of the claim.
+2. **Read the neighbours.** A declaration's siblings in the same object, the next key, the parallel
+   stage. Co-location is where this defect concentrates, because the author is already looking there.
+3. **Ask whether the FIX has the same hole.** If you gave something a fallback, is the fallback
+   subject to the condition that made the fallback necessary? That question alone catches the
+   substitute-of-an-incapacity case, which no amount of care about the original gate would have.
+4. **State the class in the finding**, not just the instance. A finding that names only what broke
+   teaches the next reader nothing about where else to look.
+
+When the class genuinely cannot be closed now — a fix that would change the instrument mid-measurement,
+or a change needing an operator decision — **say so and record the remainder**. An unclosed class that
+is written down is a backlog item; an unclosed class nobody noticed is the next finding.

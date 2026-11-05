@@ -1,0 +1,75 @@
+---
+description: Enforce strict Test-Driven Development (TDD) when implementing from a TDD-style task breakdown or when the user requests TDD.
+globs: 
+alwaysApply: false
+---
+
+# Strict TDD
+
+When implementing features or following a task breakdown that uses TDD (Red → Green → Refactor), or when the user asks for TDD:
+
+- **Tests first.** Write a failing test before any implementation for that behavior.
+- **One failing test at a time.** Do not batch multiple behaviors into one test or one implementation step.
+- **No implementation before RED.** If you have not yet written and run a failing test for a behavior, do not write the implementation for that behavior. If you catch yourself generating implementation first, STOP, correct yourself, and restart from the RED phase.
+- **Small iterations.** Prefer 3–5 RED/GREEN/REFACTOR cycles per feature. Each test must cover only ONE behavior.
+- **Minimal GREEN.** Implementation to pass the test only—no extra logic or anticipation of future requirements.
+
+## SDK-touching tests need an independently sourced fixture
+
+RED tests for code that calls a third-party SDK (`@sitecore-marketplace-sdk/*`, `@hey-api/*`, or any package with generated `.d.ts` types) include at least one fixture that QA **independently sourced from the SDK's declared types** (or from a real-tenant capture) — not copied from the Lead Developer's task description or paraphrased from a skill catalog.
+
+Why: RED tests fail because the function doesn't exist yet. They do **not** fail because the fixture is wrong-shape. If the test author and the implementation author share the same misunderstanding of the SDK contract (both reading the same prose catalog), RED → GREEN passes against shared fiction. One product's v0.1 shipped 167 passing tests against an invented response envelope; production was broken on first install.
+
+Each SDK fixture file must include a `// source:` comment citing where the shape came from:
+```ts
+// source: node_modules/@sitecore-marketplace-sdk/xmc/dist/clients/types.gen.d.ts → Sites.Host
+// captured: real tenant <tenant-id> on 2026-04-27 via `console.log(JSON.stringify(...))`
+```
+
+A fixture without a `// source:` citation is rejected at QA review. See rule `40-sdk-contracts.mdc`.
+
+## Environment-scoped assertions
+
+**Any route/URL assertion must name the context it runs against.** A test that asserts a URL resolves is only evidence for the environment it ran in. Where a contract differs across contexts — route form, media resolution, cache/tag semantics, auth scoping — a **preview-side assertion is not coverage**, and worse, it can **pin the defect as the expected value**.
+
+Real case: a prod-route smoke asserted `/destinations/Hong%20Kong` and passed for days while that exact URL 404'd for live visitors — it ran `next start` against preview, which resolves both the percent-encoded and the slugified form; live's `site.routes` index carries only the slugified one (a prior run, 2026-08-11).
+
+So, for any such assertion:
+
+- **State the context in the test** (file header or assertion name): which surface, and therefore what a pass does — and does **not** — prove.
+- **Prefer a context-free assertion where one exists.** That run's RED test asserts the *emitted href form* in jsdom — no tenant, no network, no environment — which is exactly why it holds regardless of which Edge answers.
+- **Where the contract genuinely differs, budget one assertion against the strict surface** even if it is environment-bound and manual. Divergence classes and the strict/permissive split: rule `85-preview-live-divergence.mdc`.
+
+Reference: `.agent/commands/project/dev-flow/templates/tdd-breakdown.template.md` defines the full TDD task decomposition schema and enforcement rules.
+
+## A check that cannot fail is worse than no check
+
+**Every guard must be SHOWN to fail before it is trusted.** No check leaves a known gap; a
+passing check closes the question, and nobody re-examines a green light.
+
+**Mutation-test the guard.** Break the thing the check exists to catch and watch it fail — copy
+the file, patch one line, run, restore. This is cheap and it is the only evidence that an
+assertion is load-bearing. Do it for every gate whose failure would be silent: scarcity/count
+claims, security scans, empty-state suppression, ordering contracts, link resolution.
+
+**A brand-new check that passes on the first run is the moment to try to break it**, not the
+moment to move on.
+
+**Scanners need a self-check.** Any script that sweeps a tree (source scan, schema audit, data
+assertion) must assert it found a plausible number of the things it was looking for, and fail
+loudly otherwise — `SELF-CHECK FAILED: parsed 0 unit(s) … this run proves NOTHING`. Assert on
+**inputs discovered** (files, terms, rows), never on the size of the **output**: a broken run
+can pad its own output with failure entries and slip past a threshold.
+
+Four real instances in one day of one run, each of which **reported success**: a coverage script
+whose regex assumed `\n` against CRLF serializer output made **zero assertions** and exited 0
+announcing "every term is carried by at least one unit"; the self-check added to fix it was
+padded past its threshold by dangling-term entries; an "authored order, never re-ranked" test
+placed its sold-out fixture last, where every plausible sort is a no-op, so it passed against a
+component that sorted; and a hand-invented unit fixture parsed as "unrecognised", making a
+scarcity assertion vacuous.
+
+**Read a test name as a claim and ask what would have to break for it to fail.** If the answer
+is "nothing", the fixture is wrong, not the code. See also § "SDK-touching tests need an
+independently sourced fixture" — an invented fixture is the most common way an assertion
+becomes vacuous.

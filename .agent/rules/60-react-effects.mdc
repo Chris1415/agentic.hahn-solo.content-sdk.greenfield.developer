@@ -1,0 +1,115 @@
+---
+description: Prefer derived render-time values over set-state-in-effect; use useSyncExternalStore for SSR-safe browser-only reads. Defends against Next 16's react-hooks/set-state-in-effect lint rule.
+alwaysApply: true
+---
+
+# React Effects — Derive, Don't Set-State-In-Effect
+
+## The rule
+
+Next 16's eslint preset ships `react-hooks/set-state-in-effect`, which fires on patterns like:
+
+```ts
+// ❌ Lint error — react-hooks/set-state-in-effect
+useEffect(() => {
+  if (someCondition) setFoo([]);
+}, [someCondition]);
+```
+
+When you find yourself reaching for `setState(...)` inside `useEffect` to "clear state on dep change" or "detect a client-only value at mount", **stop and rewrite as a render-time derivation** or `useSyncExternalStore`.
+
+## Pattern A — Derive at render time
+
+If the value you're trying to keep in state is fully a function of other state plus a discriminator, don't store it in state at all — derive it at render time:
+
+```ts
+// ❌ Wrong — clear pageComponents when activePageId changes
+const [pageComponents, setPageComponents] = useState<{ forPageId: string; components: ComponentRecord[] } | null>(null);
+useEffect(() => {
+  if (!activePageId) setPageComponents(null);
+}, [activePageId]);
+const displayedComponents = pageComponents?.components ?? [];
+
+// ✅ Right — keep the keyed state, project at render time
+const [pageComponents, setPageComponents] = useState<{ forPageId: string; components: ComponentRecord[] } | null>(null);
+const displayedComponents =
+  pageComponents?.forPageId === activePageId ? pageComponents.components : [];
+```
+
+**Why:** state only changes when fetch resolves. "Clearing" is a render-time projection, not an effect side-effect. Fewer render cycles, no lint error, no stale-state bug when the dep changes mid-fetch.
+
+This pattern is also recommended in the React 19 docs (https://react.dev/learn/you-might-not-need-an-effect — "Adjusting some state when a prop changes").
+
+## Pattern B — `useSyncExternalStore` for SSR-safe browser-only reads
+
+If the value comes from `window`, `document`, `localStorage`, or any browser-only global, you cannot read it at render time directly without breaking the SSR contract. The obvious `useState(false)` + `useEffect(() => setEnabled(read()))` pattern trips the same lint rule.
+
+The canonical Next 16 answer is `useSyncExternalStore` with a no-op subscribe:
+
+```ts
+// ❌ Wrong — set-state-in-effect lint error
+const [debugEnabled, setDebugEnabled] = useState(false);
+useEffect(() => {
+  setDebugEnabled(new URLSearchParams(window.location.search).get('debug') === '1');
+}, []);
+
+// ✅ Right — useSyncExternalStore handles SSR + client snapshot
+const noopSubscribe = () => () => {};
+const getClientSnapshot = () =>
+  new URLSearchParams(window.location.search).get('debug') === '1';
+const getServerSnapshot = () => false;
+
+function DebugPanel() {
+  const debugEnabled = useSyncExternalStore(
+    noopSubscribe,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
+  if (!debugEnabled) return null;
+  // ...
+}
+```
+
+**Caveat (live-discovered):** both snapshot functions return a **referentially stable** value. Returning a fresh object/array each call triggers React's *"The result of getSnapshot should be cached to avoid an infinite loop"* error and cascades to *"Maximum update depth exceeded."* If the snapshot is computed (e.g. parsed JSON), cache the result at module scope or via a lazy getter.
+
+```ts
+// ❌ Wrong — fresh array every call, infinite loop
+const getClientSnapshot = () => window.location.search.split('&');
+
+// ✅ Right — module-level cache + lazy getter
+let cached: readonly string[] | null = null;
+const getClientSnapshot = () => {
+  if (cached === null) cached = Object.freeze(window.location.search.split('&'));
+  return cached;
+};
+```
+
+For values that genuinely change after mount (resize events, focus, network state), pair `useSyncExternalStore` with a real subscribe function instead of the no-op.
+
+## When set-state-in-effect IS still correct
+
+Two narrow cases remain legitimate:
+
+1. **Reacting to async work that resolves:** the effect kicks off a fetch / subscribe and the resolution callback updates state. The state update happens in the `.then(...)` or `onSuccess(...)` handler, NOT directly in the effect body. The lint rule allows this.
+2. **Imperative integration with a non-React library:** mounting a chart, attaching a third-party listener, etc. — the effect's job is the imperative call; state updates flow through whatever callback the library provides.
+
+Both are async + callback-driven. The lint rule fires on **synchronous** `setState(derivedValue)` calls that could be replaced by render-time derivation or `useSyncExternalStore`.
+
+## Cross-references
+
+- `setup-marketplace-client-side` skill, post-scaffold step 5 — documents the same `useSyncExternalStore` template at the scaffold level. This rule generalizes it to a project-wide guardrail, beyond Marketplace SDK builds.
+- `30-tdd.mdc` — RED tests for components using `useSyncExternalStore` need a no-op subscribe stub plus a controlled snapshot value, not jest fake timers around an effect.
+- React 19 docs — https://react.dev/learn/you-might-not-need-an-effect
+
+## Agent application
+
+- **06 Lead Developer:** When a task description says "clear X when Y changes" or "detect a client-only value at mount", note in § 4c-5 that the implementation must use Pattern A or Pattern B above — not set-state-in-effect.
+- **07 QA Specialist:** RED tests for state that exists "to clear on dep change" should fail because the state shouldn't exist — push the implementation toward Pattern A.
+- **08 Developer:** If you find yourself writing `useEffect(() => { setFoo(...) }, [...])` where the body is a pure function of the deps, STOP and apply Pattern A. If the body reads a browser global, apply Pattern B.
+
+## Pitfall index
+
+- `useEffect(() => setX(deriveFromY(y)), [y])` → derive at render: `const x = deriveFromY(y)`.
+- `useEffect(() => setMounted(true), [])` → drop the state; if you need SSR-safe gating, use `useSyncExternalStore` with `getServerSnapshot = () => false`.
+- `useEffect(() => setSearch(window.location.search), [])` → Pattern B.
+- `getClientSnapshot` returning `someArray.filter(...)` → fresh reference each call → infinite loop. Cache.

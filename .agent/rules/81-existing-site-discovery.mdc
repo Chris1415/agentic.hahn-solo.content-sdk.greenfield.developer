@@ -1,0 +1,53 @@
+---
+description: EXISTING-site Content SDK discovery invariants — run READ-ONLY discovery via /discover-sitecoreai BEFORE /architect (a CM env is 1:1 with a CM code base, so reuse the operator's existing CM code in place — add a serialization module + pull, NOT a new cm/ copy), verify real tree names before token-replacing the serialization module, the Sitecore NuGet feed requirement, the two-CLI distinction, and token hygiene. Applies whenever rebuilding/rebranding a Sitecore-managed existing site.
+globs: ["**/authoring/**/*.module.json", "**/sitecore.json", "**/xmcloud.build.json"]
+alwaysApply: false
+---
+
+# EXISTING-site Content SDK Discovery — Battlefield Invariants
+
+Crisp, enforceable rules for the EXISTING-site (rebuild / rebrand) Content SDK flow — the path where the tenant already holds the content and the head app is rebuilt against it. Each is a real failure that passed local checks and only surfaced against a live tenant. The discovery stage contract lives in `/discover-sitecoreai`; this rule is the always-available guardrail layer for the discovery invariants.
+
+## 1. Discovery runs via `/discover-sitecoreai` BEFORE `/architect` — READ-ONLY, reuse the existing CM code base
+
+The existing-site read — **resolve the existing CM code base → add a serialization module → `ser pull` → inventory** — runs via the dedicated `/discover-sitecoreai` command, which sits **between `/create-prd` and `/architect`**. The Architect needs the **real component contract** (per-datasource field-type map + rendering/resolver inventory), not `[ASSUMED]` shapes. The inventory is `/discover-sitecoreai`'s output and `/architect`'s INPUT (`canonical_artifacts.content_model`).
+
+- **A CM env is 1:1 with a CM code base.** For an EXISTING CM, the operator provides the **path to the existing CM code base**; discovery adds a new serialization module THERE (from the baseline `example.module.json` template, token-replaced with the verified names) and pulls — it does **NOT** copy a new `cm/`. A fresh `cm/` baseline (at the **project level** — `products/head-application/<project-slug>/cm/`, shared by all the project's head apps) is created by **`/discover-sitecoreai`** when starting a NEW CM; `/provision-sitecoreai` reuses + deploys it (product-workspace.md § 1b-i).
+- Discovery is **read-only** — no head-app scaffold here (that is `/provision-sitecoreai`'s job). It only needs the .NET CLI + Edge to read.
+- The **PM/PRD stays at product altitude** (what site, for whom, which pages, NEW vs EXISTING). Do NOT push the component inventory into the PRD — that depth is `/discover-sitecoreai`'s job.
+
+## 2. Verify real tree names BEFORE token-replacing the serialization module
+
+Never trust operator-typed `SITE_COLLECTION_NAME` / `SITE_NAME` — they are wrong often enough to gate on (e.g. `aurora` typed for a tree actually named `auroras`). Token-replacing the baseline serialization module against a wrong name silently breaks `ser pull`.
+
+- After connecting but **before the final token-replace**, run a **shallow discovery pull** (a throwaway `*.module.json` with `ItemAndChildren` on `/sitecore/content`, `/sitecore/templates/Project`, `/sitecore/layout/Renderings/Project`) to read the ACTUAL names off the live tree.
+- Confirm BOTH the **content-collection name** AND the **`Project` templates/renderings namespace** — the baseline module *assumes they are equal*, but that is not guaranteed.
+- Reconcile the real names with the operator's input, THEN finalize the token-replace and run the full pull.
+
+## 3. The product needs a `nuget.config` with the Sitecore feed
+
+Without a `nuget.config` carrying the **Sitecore feed** (`https://nuget.sitecore.com/resources/v3/index.json`) + `<clear/>` (to drop an interfering global/local feed), the .NET `sitecore.cli` **plugin restore fails** (`Unable to find NuGet package 'Sitecore.DevEx.Extensibility.*'` — incl. `XMCloud`, which provides the `cloud` command). Those plugins live on `nuget.sitecore.com`, not nuget.org.
+
+- After `dotnet tool restore`, **verify `dotnet sitecore` lists both `cloud` and `ser`.** If not, the product is missing the `nuget.config` — add it and retry.
+
+## 4. Head-app scaffold + the decoupled filesystem split is `/provision-sitecoreai`'s job (not discovery)
+
+Discovery does NOT scaffold. `/provision-sitecoreai` scaffolds the head app with **`--template nextjs-app-router`** (the default `nextjs` template is Pages Router; App Router is mandatory — **verify `src/app/` exists**, no `src/pages/`; HARD STOP otherwise, do NOT hand-edit config to force it). **Filesystem (two-level, product-workspace.md § 1b-i):** under the **project folder** (`products/head-application/<project-slug>/` = the Deploy project = one CM), the CM code base is **`cm/`** (a NEW CM, at the project level) or the operator's existing CM path (EXISTING); each head app (editing host) is its own workspace with `project-planning/` inside it, placed by the run's **`repo_topology`** (recorded at intake; both values are current): under **`repo-per-deployable`** it is a **sibling of `cm/`** carrying its own `xmcloud.build.json` with `renderingHosts.<name>.path = "./"`; under **`monorepo`** it sits at **`cm/sites/<head-app-slug>/`** inside the one CM repo, with **no descriptor of its own** — the repo-root file carries `authoringPath` plus `renderingHosts.<name>.path = "./sites/<name>"`. (Legacy flat products still resolve; a `sites/` nesting is **not** legacy.)
+
+## 5. Two CLIs — serialization is the .NET one
+
+Two different `sitecore` CLIs are in play and only one serializes:
+
+- **Node `sitecore-tools`** (`@sitecore-content-sdk/cli`, ships inside the head app) — head-app ops only (component-map / build / Edge site-config). **NO serialization.**
+- **.NET `sitecore.cli`** (from the baseline's `.config/dotnet-tools.json`, v6.0.23) — `dotnet sitecore`, does `ser push` / `ser pull` + `cloud …`.
+- **Pull = the .NET CLI**, never `sitecore-tools`.
+
+## 6. `.sitecore/user.json` holds tokens → gitignore it
+
+`dotnet sitecore cloud environment connect` writes access + refresh tokens into `.sitecore/user.json`. Keep it gitignored and never commit it: those tokens grant write access to the environment.
+
+## Cross-references
+
+- `/discover-sitecoreai` — read-only discovery between `/create-prd` and `/architect` (owns the EXISTING inventory contract).
+- `/provision-sitecoreai` — stands up the decoupled CM + editing host and scaffolds/deploys the baseline (between `/task-breakdown` and `/implement`) carries the verified API/CLI contract.
+- `80-content-sdk-headapp.mdc` — the head-app build invariants (chrome, placeholders, editing-safe components, LIVE-context delivery) that apply once discovery is done.

@@ -1,0 +1,39 @@
+---
+description: A change is not done until the docs that describe it are true again. Before finalizing ANY change — a /ship, a freeform commit, or a direct edit to this framework repo — critically check whether it falsified any documentation and fix the stale docs in the SAME change. Code and docs must not diverge across one commit.
+alwaysApply: true
+---
+
+# Doc Freshness — code and docs must not diverge in one commit
+
+## The rule
+
+Whenever you finalize a change — a pipeline `/ship`, a freeform `/implement` → commit, or a hand edit to this framework repo — **critically check whether the change made any documentation wrong, and fix it in the same change.** The behavior and the docs that describe it must never diverge across a single commit.
+
+This is a **critical review, not a mechanical emission.** Ask of each candidate doc: *does anything this change did make a statement here now wrong, incomplete, or misleading?* — a renamed / removed feature, a changed command / flag / env var / path, altered behavior, a new capability the docs don't mention, or a count / claim the change invalidated. No template finds these for you; only a read against the actual diff does.
+
+## Candidate doc surface
+
+Scan each that exists and that the change could have touched:
+
+- **Product work** (under `products/<slug>/`): `README.md` (**all** sections), `CHANGELOG.md`, `docs/**`, a product-level `CLAUDE.md` / `AGENTS.md`, and any doc the feature references.
+- **Framework work** (this repo — edits under `.agent/`, `scripts/`, agents, commands, rules, templates): the **root `CLAUDE.md`**, root `README.md`, `.agent/flows.json` (registry + prose), `.agent/glossary.md`, and the changed command / agent / rule files' own headers.
+
+## Disposition
+
+- **Stale → fix it now, in the same commit.** Prefer surgical edits over rewrites; honor each doc's budget (don't bloat a README — route detail to `docs/`).
+- **Needs a product decision** (ambiguous, or a rewrite beyond this change's scope) → do not guess: surface it to the operator (Operator Checkpoint "Decisions needed"; `[BLOCKER]` if a doc would otherwise ship untrue).
+- **Already current → say so.** Assert "docs audited current — checked <list>"; silence is not a pass.
+
+## Where this is enforced
+
+- **`/ship`** runs an explicit **Documentation freshness audit** as a step before the commit — this rule is that step's contract. See `.agent/commands/project/dev-flow/10-ship.md` § "Documentation freshness audit".
+- **Freeform and direct commits** (no `/ship`): the same audit is your responsibility before you stage. The global "green before an ad-hoc push" habit extends to **docs**, not just tests + build.
+- **This framework repo:** any change to agents / commands / rules / `flows.json` / scripts / templates must carry the matching update to the root `CLAUDE.md` / `README.md` / `flows.json` / `.agent/glossary.md` in the **same commit** (`CLAUDE.md` § "When working in this repo"). This is the gap `/ship` cannot cover, because framework work rarely runs `/ship`.
+
+## Pitfall index
+
+- Shipping a renamed command / flag while the README / CLAUDE.md still names the old one → update both in the same commit.
+- Deferring "I'll fix the docs later" past the PR → later never comes; the doc is now a lie in `main`.
+- Editing a `.agent/` command's behavior without updating the root `CLAUDE.md` pipeline description, `flows.json`, or the glossary → the framework's own docs drift silently.
+- Treating the lite README `## Status` bump at `/ship` as "docs done" → that touches one section; this rule owns the whole surface.
+- A mechanical emission with no critical read against the diff → the point is to catch statements the change *falsified*, which no template can find.

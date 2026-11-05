@@ -1,0 +1,75 @@
+{
+  "//": "Every `ser` operation on a shared cm/ is `-i Project.<SITE_COLLECTION_NAME>` — no unscoped op, ever (rule 84-sitecore-multisite-scoping).",
+  "//completeness": "The site include has NO `*: Ignored` rule and defaults to ItemAndDescendants, so a subtree an author adds later is serialized by default rather than silently dropped. The older shape of this template listed six subtrees and ignored everything else, and additionally pinned /home to SingleItem — a brand seeded from it serialized the home ITEM and none of its pages. Add a rule below only to change the push policy for a subtree, never to opt a subtree in.",
+  "//push-policy": "Dev items (settings/templates/branches/renderings/placeholder settings/Presentation) are CreateUpdateAndDelete so removals propagate to a target instance. Content and media are CreateAndUpdate — a push must never delete an authored page, datasource or image. Environment-coupled items (Site Grouping hostnames) are CreateOnly: they land once on a fresh target and are never overwritten afterwards.",
+  "//no-rendering-host": "A Rendering Host item is NEVER included. Its fields are absolute editing-host URLs for one tenant, so serializing one puts environment state in git. CreateOnly does not mitigate it — on a fresh instance it still CREATES the item with the dead URLs and then refuses to correct it (observed 2026-08-13: a new tenant inherited a foreign org's -eh host). The binding is set per environment by /provision-sitecoreai § 7d, which writes the site-grouping RenderingHost field — a plain host NAME, needing no serialized item.",
+  "//no-auto-thumbnails": "The platform writes a new media item for every page and site thumbnail it auto-captures, under <SITE_NAME>/System/<h>/<h>/<h>/<h>/. With the media include at ItemAndDescendants every pull committed them as base64 blobs (632 files, ~14 MB across six brands, removed 2026-09-28). The /System rule caps that folder at ItemAndChildren: the custom dashboard card System/thumbnail_<siteId> (set by /publish step 6c) stays serialized, and the auto-captures do not.",
+  "$schema": "../.sitecore/schemas/ModuleFile.schema.json",
+  "namespace": "Project.<SITE_COLLECTION_NAME>",
+  "items": {
+    "includes": [
+      {
+        "name": "module",
+        "path": "/sitecore/system/settings/Project/<SITE_COLLECTION_NAME>",
+        "allowedPushOperations": "CreateUpdateAndDelete"
+      },
+      {
+        "name": "templatesProject",
+        "path": "/sitecore/templates/Project/<SITE_COLLECTION_NAME>",
+        "allowedPushOperations": "CreateUpdateAndDelete"
+      },
+      {
+        "name": "branchesProject",
+        "path": "/sitecore/templates/Branches/Project/<SITE_COLLECTION_NAME>",
+        "allowedPushOperations": "CreateUpdateAndDelete"
+      },
+      {
+        "name": "projectRenderings",
+        "path": "/sitecore/Layout/Renderings/Project/<SITE_COLLECTION_NAME>",
+        "allowedPushOperations": "CreateUpdateAndDelete"
+      },
+      {
+        "name": "projectPlaceholderSettings",
+        "path": "/sitecore/Layout/Placeholder Settings/Project/<SITE_COLLECTION_NAME>",
+        "allowedPushOperations": "CreateUpdateAndDelete"
+      },
+      {
+        "name": "projectMedia",
+        "path": "/sitecore/Media Library/Project/<SITE_COLLECTION_NAME>",
+        "scope": "ItemAndDescendants",
+        "allowedPushOperations": "CreateAndUpdate",
+        "rules": [
+          {
+            "path": "/<SITE_NAME>/System",
+            "scope": "ItemAndChildren",
+            "allowedPushOperations": "CreateAndUpdate"
+          }
+        ]
+      },
+      {
+        "name": "tenantRoot",
+        "path": "/sitecore/content/<SITE_COLLECTION_NAME>",
+        "scope": "SingleItem",
+        "allowedPushOperations": "CreateAndUpdate"
+      },
+      {
+        "name": "site",
+        "path": "/sitecore/content/<SITE_COLLECTION_NAME>/<SITE_NAME>",
+        "scope": "ItemAndDescendants",
+        "allowedPushOperations": "CreateAndUpdate",
+        "rules": [
+          {
+            "path": "/Presentation",
+            "scope": "ItemAndDescendants",
+            "allowedPushOperations": "CreateUpdateAndDelete"
+          },
+          {
+            "path": "/Settings/Site Grouping",
+            "scope": "ItemAndDescendants",
+            "allowedPushOperations": "CreateOnly"
+          }
+        ]
+      }
+    ]
+  }
+}

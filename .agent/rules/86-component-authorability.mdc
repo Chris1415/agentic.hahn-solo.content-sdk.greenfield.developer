@@ -1,0 +1,169 @@
+---
+description: A component is not done when it renders — it is done when an author can find its content and change it. Every authored, human-readable value must arrive on `fields` from the rendering's own datasource (or the context item) and render through an SDK field component. Where content legitimately comes from elsewhere, the author must be able to SEE that connection from the authoring UI, and a rendering must never carry a Datasource Template it ignores.
+alwaysApply: true
+---
+
+# Component Authorability — rendering correctly is half the job
+
+## The rule
+
+**Authorability is a shipping requirement, not polish.** For every rendering:
+
+1. **Every authored, human-readable value it displays** — headings, eyebrows, body copy, labels, CTA text, images, links — **arrives on the `fields` prop** from the rendering's own datasource or the context item, and renders through an SDK field component (`<Text>` / `<RichText>` / `<Image>` / `<Link>` from `@sitecore-content-sdk/nextjs`, rule `80` § 8).
+2. **The author can select the component in the Pages canvas and edit that value inline** — verified in a real browser against a real tenant, not asserted from a unit test.
+3. **The author can find where the content lives.** If a value legitimately does not come from the datasource, the connection is discoverable from the authoring UI — never only from a document.
+4. **A rendering never carries a Datasource Template it does not read.**
+
+The corollary matters as much as the rule: **a component that renders perfectly and cannot be edited is not shippable.** It is a CMS component that has opted out of the CMS.
+
+## Why this is not obvious — every failure mode ships green
+
+There is no signal. The page renders, the build is green, the tests pass, `next build` succeeds, code review sees clean code, Edge serves the content, and the components map screenshots beautifully. The defect surfaces the first time an operator clicks a heading in Pages and nothing happens — usually months later, and usually all at once.
+
+**Five mechanisms make a component un-authorable. All five render correctly.**
+
+| # | Mechanism | What it looks like | Why the author is stuck |
+|---|---|---|---|
+| 1 | **Plain string** | value reaches the component outside `fields`, rendered as `{heading}` | no `metadata` → no editing chrome → no click target |
+| 2 | **Bypassed `fields`** | the component does its own GraphQL read against a fixed path and ignores the injected prop entirely | same as 1, but **systemic** — it is a pattern, so it repeats across every component |
+| 3 | **Partial guard** | `{hasValue && <Text field={f}/>}` | an empty field disappears, so it can never be filled — **use `(isEditing \|\| hasValue)`**, rule `80` § 3 |
+| 4 | **Unmount on empty** | the component `return null`s when its content is unauthored | nothing to select in the canvas; the component cannot be reached at all |
+| 5 | **`ComponentQuery` replaces the payload** | an integrated query overwrites `fields` wholesale, or `value` is returned where `jsonValue` was needed | metadata is stripped; see rule `80` § 5 |
+| 6 | **State-gated field swap** | the component picks *which* field to render from runtime state — `unlit ? fields.a : fields.b` | the inactive field is editable only when that state happens to occur. If the state is a live reading, an author may never reach it |
+
+**The SDK ships mechanism 4 as a DEFAULT (2026-09-10).** `Link` accepts children and carries
+`renderChildrenWhenEmpty`, documented in `react/types/components/Link.d.ts` as **`@default false`** —
+so an empty link field renders `null` and the CTA disappears from the canvas exactly when an author
+needs to fill it. Nothing in the component's own code looks like unmount-on-empty, and
+`audit-component-authorability.mjs` cannot see it: the `return null` is inside `node_modules`. Set it
+explicitly on every `Link` that wraps children. Found while porting a parity app to renderings; the
+same question is worth asking of any SDK field component that takes children.
+
+**The escape is a CONDITION, not a spelling** (2026-08-15). `(isEditing || hasValue)` above is the canonical form, but `!hasValue && !authoring` is the same rule and so is any project helper wrapping `page.mode` — what mechanisms 3 and 4 require is that *some* authoring-mode term guards the same statement. `audit-component-authorability.mjs` used to match only the literal, which made **18 of 23** `unmount-on-empty` warnings and **both** `bare-hasvalue-guard` warnings false on a build whose guard was correct throughout; it now resolves a called local helper to its definition body. Write whichever form reads best — but keep the escape **on the guard itself**, since branching on authoring elsewhere in the file does not stop this field from vanishing.
+
+Mechanisms 3–5 are single-component bugs. **Mechanism 2 is an architecture, and it is the expensive one** — it is chosen once, at the first component, and inherited by every component after it. **Mechanism 6 is the subtlest**: every field is wired correctly and the audit passes, yet one of them is unreachable in practice. Where a component swaps fields on state, render **all** of them when `isEditing` (one shipped hero renders both its lit and unlit eyebrow in the canvas for exactly this reason) — the alternative is a field whose editability depends on the weather.
+
+## Mechanism 5 is about a query that DROPS fields, not about `ComponentQuery` itself
+
+Read as a blanket prohibition, mechanism 5 becomes *"never use Integrated GraphQL"* — and that is a materially worse outcome than the defect it avoids.
+
+The failure is **a query that returns less than the component renders**, so a field arrives without its `metadata` (or as `value` where `jsonValue` was needed) and loses its editing chrome. The fix is to make the query return **everything the component renders, with metadata** — not to abandon the mechanism.
+
+**What the blanket reading costs.** Every repeating list is pushed onto a Multilist on the parent datasource, which produces a component whose rows an author can **re-point but never add** (`content-sdk-list-component`). Measured on a prior run, 2026-08-26: a spec-level acceptance criterion *"No `ComponentQuery` replaces a `fields` payload on any rendering"* excluded Integrated GraphQL from the architecture; four renderings displaying repeating rows all became Multilist-backed, and none is extendable in Pages.
+
+**Two failure modes worth separating**, because they need opposite fixes:
+
+| | |
+|---|---|
+| A query that **drops** authorable fields | a real instance of mechanism 5 — fix the query |
+| A mechanism chosen to **avoid** that risk, at the cost of authoring ergonomics | not an authorability defect at all — it is a trade-off, and it belongs to the operator |
+
+**Multilist vs Integrated GraphQL is an OPERATOR question, not an architecture default.** The trade is: one write operation per row and workflow-controlled go-live (IGQL) versus two operations in two places and no add-affordance (Multilist). Ask it; do not settle it in an ADR that cites an acceptance criterion the same run invented. On that run the discovery ledger contains **zero** mentions of ComponentQuery, Multilist or Integrated GraphQL — the constraint was written at spec time and then cited by the architecture as though it came from outside.
+
+## Rule `40` is about typing what you fetch, NOT about fetching instead of `fields`
+
+This is the specific misreading that produced the worst case on record, so it is called out explicitly.
+
+Rule `40-sdk-contracts` requires you to derive request/response shapes from `node_modules` `.d.ts` files and to keep fixtures honest. It says nothing about *where content comes from*. Reading a component's own content by fixed path, so that "the wire shape stays fully under our own control", satisfies rule `40` and violates this one.
+
+> **A prior run, PRD-000, shipped 2026-08-08.** Every one of 21 renderings fetched its own content server-side via raw Edge GraphQL against a fixed path (`src/lib/edge/scoped-read.ts`), returning plain strings. `CinematicHero.tsx`'s own header states the intent: *"reading its own datasource directly (bypasses the SDK-injected `fields` prop … same precedent as BookingFunnel/T042)"* — citing rule `40` as the justification. Measured on 2026-08-11: **only 4 of 21 components import SDK field components at all**, and only 2 (`DestinationStory`, `StoryArticle`, both page-field renderings) are inline-editable. **17 renderings are entirely un-editable in Pages.** The build shipped with 704 unit tests, 88 e2e tests, four code reviews and a full `/test` pass — none of which can see this. Additionally, **six renderings carry a Datasource Template and ignore every word of it**, so an author can attach a datasource, fill it, save it, and nothing happens: a working-looking authoring action with no effect and no error.
+
+The cost is not cosmetic. A head app whose components cannot be authored is a static site with a Sitecore bill.
+
+## When content genuinely is not datasource-shaped
+
+Some data legitimately does not belong on a datasource: live feed readings, computed scores, catalogue aggregates, cross-item queries, client state. Reading those outside `fields` is correct.
+
+**That is an exception per FIELD, never per component.** A component that shows a live air-quality figure *and* an authored heading reads the figure however it must — and still takes the heading from `fields`. Splitting a component's inputs into *authored copy* and *derived data* is the normal shape, not a compromise.
+
+Each exception carries three obligations:
+
+- **Name it.** The task breakdown's § 4c states, per component, which values are authored (and from which item) and which are derived. "Everything is derived" is a finding, not a design.
+- **Make the connection visible to the author** — at minimum the rendering's description field names the driving item path. A settings-singleton source that appears nowhere in the authoring UI is invisible by construction: the author sees a component, sees no fields, and has no way to discover that `Settings/Hero Content` is what drives it.
+- **Do not leave a decoy.** If the component will never read a datasource, it must not have a Datasource Template. Pages offering an attach-a-datasource action that does nothing is worse than offering none.
+
+## Fixed UI microcopy has three homes — the Sitecore Dictionary is one of them
+
+Labels that belong to the component rather than to one instance of it — aria-labels, "Previous image", empty-state lines, "Showing 3 of 12", form labels — still count as authored copy. They have **three** legitimate homes:
+
+1. **the datasource** — when the string differs per placement;
+2. **a shared settings item** — read server-side, authorable but not inline-editable;
+3. **the Sitecore Dictionary** — site-scoped key/phrase entries read through `getDictionary` / next-intl, translatable per language with no template work (`content-sdk-app-router-dictionary-and-i18n`, `sitecoreai-localization`).
+
+**Keep a code default.** Edge returns the **key itself** as the value for an untranslated phrase, a missing language version or an empty phrase (measured 2026-10-02 on Edge preview, S4). Treat `value === key` as missing and fall back to the literal; the `t('X') || 'default'` idiom is dead code because the key is truthy.
+
+A string literal in JSX is none of the three. `audit-component-authorability.mjs` reports it as **`literal-microcopy` (WARN)**, waivable per string; editing-only hints (`isEditing && …`, `if (!isAuthoringMode(page)) return …`) are author chrome and are not reported.
+
+## Diagnose before you plan the fix — read the layout payload first
+
+**The remediation may be far smaller than it looks, and one query tells you.** Before scoping any authorability fix, query the Edge layout for a page carrying the component and look at what actually arrives:
+
+```sh
+curl -s -X POST "https://edge-platform.sitecorecloud.io/v1/content/api/graphql/v1?sitecoreContextId=<preview-id>&sitecoreContextIdType=preview" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ layout(site:\"<Site>\", routePath:\"/\", language:\"en\") { item { rendered } } }"}'
+```
+
+Then read `…rendered.sitecore.route.placeholders['<placeholder>'][n]` → `dataSource` and `fields`. Three possible answers, and they are three different projects:
+
+- **`dataSource` set and `fields` populated** — the data is already arriving and the component is discarding it. The fix is **head-side only and deletes code**. No Sitecore change, no content migration, no `go_live` gate.
+- **`dataSource` set, `fields` empty** — a resolver problem (rule `80` § 5), not a modelling problem.
+- **No `dataSource`** — genuinely a content-modelling job, and the expensive case.
+
+> **The same run, 2026-08-11.** The site looked like the expensive case: 21 renderings all reading fixed paths, six carrying datasource templates the components "ignored". The payload said otherwise — `CinematicHero` already had `ds={562b191a…}` = `Settings/Hero Content`, and `heroEyebrow` / `heroHeading` / `heroSubheading` / `heroUnlitEyebrow` were all present with the right values. The same was true of four more components. The remediation was **−147 / +133 lines and zero tenant writes**, not a re-model. Guessing would have scoped it as the third case.
+
+## When there is no content model, "make it editable" is four steps, not one
+
+A component whose copy is a string literal has **nothing behind the text**, so there is no field to render and no item to click into. Making it authorable costs, in order — and all four are mandatory:
+
+1. **A datasource template** carrying the fields.
+2. **A folder template** beside it (`Folders/<Name> Folder`, rule `80` § 8). Easy to forget and the schema audit fails the brand without it — `audit-sitecore-schema.mjs` caught exactly this omission across nine templates on its first run.
+3. **A datasource item**, seeded with the copy already on screen, so the page does not change and the component's fallback stays honest.
+4. **The binding** — `ds=` on the rendering instance in each page's `__Final Renderings`. **This is the step that gets skipped.** A template and an item are completely invisible to an author until the instance points at them; the layout service sends no `fields` and the component silently keeps rendering its literal. Only ever fill an *empty* `ds`, so a datasource an author attached by hand is never clobbered.
+
+Steps 1–3 are one scripted pass; step 4 is a separate write per page (a `__Standard Values` binding covers a whole template's pages at once). Both should be idempotent and read-only until an explicit `--apply`.
+
+**Verify the route survives.** Making a rendering datasource-backed can make Edge drop the route outright, so query the layout for each affected route type **before and after** the change — not just the page you were thinking about.
+
+### The Context Item Resolver beats the datasource — check before you build
+
+A rendering carrying the **Context Item Resolver** returns the *context item's* fields and ignores its datasource entirely. Binding one is inert: `dataSource` shows up populated in the payload while `fields` still holds the page's own fields, which reads exactly like a successful binding until you look at the field names.
+
+> **The same run, 2026-08-11.** `RoutesTable` and `DestinationConditionsPanel` were given templates, items and bindings; the payload came back with `ds` set and `fields` = `title, airport, heroImage, …` — the Destination page's fields, not the label fields just created. Neither component can be made author-editable this way, and removing the resolver is not an option because `DestinationConditionsPanel` needs the page's `airport` Droplink to function at all.
+
+So: **read the payload for a resolver-backed rendering before building it a content model.** Where the resolver must stay, the honest options are to leave the copy in code or move it to a shared settings item read server-side (authorable, not inline-editable) — and either way, say which, because a silently inert datasource is worse than none. Related: rule `80` § 5, "the resolver wins over the query".
+
+## The gate
+
+**Run at every delivery-loop exit, before the commit** — alongside the schema audit (rule `80` § 0a):
+
+```sh
+node .agent/scripts/audit-component-authorability.mjs --app <path-to-head-app>
+```
+
+Exit 1 on any component registered in the component map that renders no field components, **or that renders one field's raw `.value` (JSX child, or an attribute of a non-SDK element) beside correctly rendered ones** (`raw-field-value`, 2026-10-01: the consent banner passed with `{fields.ReopenLabel?.value}` in place of its `<Text>`). Deliberate exceptions live in `<app>/.authorability-ignore.json` — per field under `fields` (`"<Component>.<Field>": { "reason": … }`, the preferred form) or per component under `components` — each with its **own mandatory `reason`**. Anything undeclared fails.
+
+Two axes **warn and never fail the gate**: `literal-microcopy` (a hard-coded visitor-facing string, waived per string under `microcopy` as `"<Component>::<text>"`) and `atom-plain-string` (a beta.atoms catalog prop in `src/atoms/` carrying copy as `z.string()` instead of a `*FieldSchema`, waived under `atoms` as `"<Atom>.<prop>"`). Measured 2026-10-02 on the six shipped apps: 0 false positives after review, 34–163 true literal strings per app.
+
+The audit is a **floor, not proof**. It can see that a component imports no field components, or prints a field's `.value` directly; it cannot see a value laundered through a helper (`compose(a.value, b.value)`) or that the one field it does render is the wrong one, or that inline editing actually works. **One real Pages-canvas check per component is still required** — `/test`'s smoke contract, in a real browser, against a real tenant.
+
+**Deploy BEFORE you ask anyone to look.** Pages renders through the editing host, which is git-linked to a branch (normally `main`) with `deployOnCommit`. A fix sitting on a feature branch is invisible to the canvas **by construction**, so "verify in Pages, and don't merge until it verifies" is a contradiction that produces a false refutation: the operator sees the old code, reports "nothing changed", and the work looks broken when it was merely absent. Merging is the **prerequisite** of the canvas test, not its reward — and it is safe, because a head-app `main` is preview-first and nothing reaches visitors without `/publish` (rule `85`). Same hard entry gate as `/discover-components` and `/author-content`: *the editing host must be serving THIS run's code.*
+
+**Give the check a canary.** Before handing a canvas verification to an operator, name one mark in the DOM that exists **only** in the new code, so "not deployed" and "deployed but not editable" cannot be confused. An editing-only affordance is ideal — that run's hero renders both eyebrows in the canvas, so *two eyebrows* proves the host is current and *one* proves it is stale, before anyone draws a conclusion about editability. Without a canary a stale host and a real defect look identical, and the wrong one gets debugged.
+
+## Agent application
+
+- **04 Architect** — the content-access pattern is an **ADR**, written before the first component is built. It must state which values come from datasources, which come from shared settings items, which are derived, and how an author discovers the non-datasource ones. Deciding this per-component at implementation time is how mechanism 2 spreads.
+- **05 UI Designer** — a POC that shows only populated, ideal-length content hides the empty and overflow states an author will actually create. Specify the empty state per field.
+- **06 Lead Developer** — § 4c per component names the **authoring contract**: field → source item → editable yes/no. A component whose § 4c cannot name an editable field is an escalation to the Architect, not a task to hand to the Developer.
+- **07 QA Specialist** — § 8 carries a **per-component editability check** in the Pages canvas, and the audit script runs at every delivery-loop exit. A component that renders but cannot be edited is a **Major** finding. Unit tests mocking `fields` pass identically whether or not the component reads them — that assertion proves nothing here.
+- **08 Developer** — take content from `fields`. If a value cannot come from `fields`, escalate rather than reaching for a direct read; the direct read is always the shorter path and always the wrong default.
+- **09 Doc Writer / `/discover-components`** — the components map records **editability per component**, not merely the content source. One run's map documented the bypass as fact 1 (*"No component reads its rendering datasource"*) and never drew the conclusion that the site was therefore un-authorable.
+
+## Cross-references
+
+- `80-content-sdk-headapp.mdc` § 3 (editing-safe components — the `isEditing || hasValue` guard, empty-container affordances), § 5 (integrated GraphQL / `jsonValue` metadata), § 8 (import field components from `/nextjs`). Those rules tell you how to be editing-safe **given** you use `fields`; this rule is what requires you to use it.
+- `40-sdk-contracts.mdc` — type what you fetch; not a licence to fetch instead of `fields`.
+- `84-sitecore-multisite-scoping.mdc` — the `Datasource Location` hard-pin trap, for renderings that do carry a datasource.
+- Skill `content-sdk-resolver-patterns` — which resolver produces which `fields` payload shape.
+- Skill `content-sdk-create-component` — cloning an OOTB component inherits the base templates that make the full authoring feature set work.

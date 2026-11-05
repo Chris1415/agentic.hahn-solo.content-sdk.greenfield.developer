@@ -1,0 +1,11 @@
+---
+description: TypeScript/JavaScript conventions
+globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
+alwaysApply: false
+---
+
+# TS/JS Rules
+- Prefer TypeScript-first.
+- Follow existing patterns; do not introduce new frameworks.
+- Avoid new dependencies unless explicitly requested.
+- Keep functions small; isolate side effects.

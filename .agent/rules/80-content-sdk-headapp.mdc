@@ -1,0 +1,358 @@
+---
+description: Content SDK head-app invariants discovered live (chrome placement, nested placeholders, editing-safe components, integrated GraphQL, hydration, and the production LIVE-context-id delivery rule). Applies whenever editing a Content SDK head app, in either supported repo topology (two-level layout, product-workspace.md § 1b-i) — a sibling of `cm/` under the project folder (`repo-per-deployable`), or nested at `cm/sites/<name>/` inside the CM repo (`monorepo`). Also covers a legacy flat product.
+globs: ["**/sites/**/*.{ts,tsx,css,mjs}", "**/sitecore.config.ts", "**/.sitecore/**/*.ts", "**/src/components/**/*.tsx", "**/src/app/**/*.tsx"]
+alwaysApply: false
+---
+
+# Content SDK Head-App — Battlefield Invariants
+
+Crisp, enforceable rules for building a Sitecore Content SDK head app. Each is a real failure that passed `tsc` + lint + unit tests and only surfaced in a real browser / Pages editor / production deploy. Stage contracts live in the owning commands (`/provision-sitecoreai`, `/implement`, `/author-content`, `/publish`). This rule is the always-loaded guardrail layer for the invariants.
+
+The scaffold (`create-content-sdk-app`, per `50-scaffold`) is **minimal** — it omits standard SXA components and ships none of the editing-safe patterns below. The work is layering these on; do it from the start, not after the missing-component box appears.
+
+## 0. Every component's Sitecore rendering schema is a `/implement` deliverable — built LIVE per component, pulled back per loop
+
+A head app's React component is **half a rendering**. For it to be placeable (`add_component_on_page`) and to resolve data, its **Sitecore schema must exist**: a **JSON Rendering item** (`componentName` = map key) under `/sitecore/layout/Renderings/Project/<Brand>/`, its **datasource template(s)**, and the resolver/query wiring. `create-content-sdk-app` creates **none** of it; `/provision-sitecoreai` makes the site/collection/page-designs, not renderings; `add_component_on_page` creates datasource **content**, not the rendering/template **schema**. **If no stage owns this it is silently dropped** — the component ships in code, unit tests pass, and *assembly* discovers an empty `Renderings/Project/<Brand>` with nothing to place (a prior run's PRD-000, 2026-07-12).
+
+> **Authoring GraphQL wire mechanics — verified live 2026-07-30.** Each of these cost a failed round-trip or a wrong conclusion, so they are recorded verbatim.
+> - **`copyItem` is the clone primitive:** `copyItem(input:{itemId, targetParentId, copyItemName, deepCopy:true})`. Do not hand-build a clone out of `createItem` + field writes.
+> - **`createItem`'s `parent` takes an item GUID, NOT a path.** A path returns `Unable to convert type from 'String' to 'Guid'`.
+> - **The `item(where:{…})` lookup argument is `itemId`, not `id`** (`id` errors with ``The specified input object field `id` does not exist``). `itemId` accepts undashed, dashed and braced GUIDs interchangeably.
+> - **⚠️ Trust `path`, never `name`, right after a concurrent copy.** Following 10 simultaneous `copyItem` calls, the `name` and `displayName` resolvers reported the *source's* name for 8 of 10 items while every `path` was correct — and it does not converge (stable at 0/10/30/60s). It is a **read-side reporting artifact, not corruption**: a path lookup for the source name returned NULL and all 10 requested paths resolved to 10 distinct items. Verify created items by **path lookup**, and never conclude a copy failed from the `name` field alone.
+> - **`componentName` after a clone is unreliable** — across concurrent copies it carried either the source's value or the raw `$name` standard-values token. Harmless here because item 2 below requires setting it explicitly; just never *assume* the clone got it right.
+> - Both `Datasource Template` and `componentName` can be set in a **single** `updateItem` `fields:[…]` batch.
+
+**Template folder layout — every project template lives inside the SITE's own folder (ENFORCED, audited).** Only the OOTB SXA site scaffold belongs at the brand root; everything the build creates goes below `<Site>/`. Canonical shape:
+
+```
+/sitecore/templates/Project/<Brand>/               ← OOTB SXA site scaffold ONLY
+├── Headless Site · Headless Tenant · JSS Settings · Page
+├── Page Designs · Page Design Folder · Partial Designs · Partial Design Folder
+└── <Site>/                                        ← EVERY project template lives below here
+    ├── <Name>                                     ← datasource + list element/row templates, at the root
+    ├── Folders/<Name> Folder                      ← ALL folder templates
+    └── Rendering Parameters/<Name> Parameters     ← ALL parameters templates
+        └── Content/<list>/                        ← Droplink option items (Colors, Sizes, Alignments…)
+
+/sitecore/layout/Renderings/Project/<Brand>/<Site>/<Name>
+```
+
+**A project template sitting directly under `Project/<Brand>/` is a defect**, as is a `Folders/` or `Rendering Parameters/` folder at the brand root instead of inside `<Site>/`. `content-sdk-create-component`'s `copyItem` recipe already targets these three parents — follow it rather than choosing placement per component.
+
+The `<Site>` level is **organizational, not a scoping boundary**: templates stay COLLECTION-scoped (rule `84`), so a second site in the same collection **reuses the first site's folder** rather than getting one of its own. Do not read `<Site>/` as isolation, and do not clone the tree per site.
+
+> **Why this is spelled out here and not only in the skill.** Until 2026-08-12 the tree existed *only* in `content-sdk-create-component`, while items 5 and 8 below named `Rendering Parameters/` and `Folders/` without ever anchoring them to `<Site>/`. Three of five brands drifted and every one of them passed the gate: they built both subfolders (one not even that) at the **brand root**, which is precisely the shape those two unanchored fragments describe. The audit tolerated it by design. Layout is now an audited axis.
+
+**The Developer owns it, in the same tranche as the code** (it wrote the `FieldNames` — only it can produce a schema that matches). Per-component **rendering Definition-of-Done**:
+
+1. **Datasource template** — created by **cloning the matching OOTB source** so it inherits the base templates SitecoreAI needs (Promo → standard, Link List → list/IGQL container **plus a child *element* template**, PageContent → context-only), per `content-sdk-create-component`; **never built from scratch on only `Standard template`** (a defect two runs shipped). One `Content`/`Data` section, one field per the component's `interface XFields`, typed from the SDK field type: `TextField`→Single-Line Text, `RichTextField`→Rich Text, `ImageField`→Image, `LinkField`→General Link; author-set tokens/flags→Single-Line Text/**Checkbox** (never a `Source`-field flag). Set each field's `Source` by type — Image `query:$siteMedia`, Rich Text `query:$xaRichTextProfile`, General Link `query:$linkableHomes`, list/picker fields a query resolving to items. **Assert the resulting `__Base template` set** (standard = `Standard template`+`_PerSiteStandardValues`; list container = +`_PublishingGroupingTemplate`+`_HorizonDatasourceGrouping`; element = `Standard template`+`_PerSiteStandardValues`).
+   - **List field `Source` — datasource-relative, template-filtered query (ENFORCED).** The list field itself (the `Items`/`Plans`/`Rows` Multilist/Treelist on the parent that references the child items) sets its `Source` to `query:./*[@@templatename='<ChildTemplate>']` — never a fixed path (`/sitecore/content`) or unset. The Source lives on the *shared* template, so it has to be **relative** (`./` = the datasource being edited, `*` = its children); the `[@@templatename='…']` filter keeps same-parent lists (e.g. CoverageComparison `Plans` vs `Rows`, both children of one datasource) out of each other's picker. A fixed/unset Source makes the **Pages picker list the content-tree roots** (Home / the collections) instead of the datasource's own children, so the author cannot select the right items. **Rendering is unaffected** (the component reads the field *value*, not the Source) — so this is **silent until someone edits in Pages** (one site shipped this way, 2026-07-13). Note: `fast:` queries are absolute-from-root and **cannot** be datasource-relative — use a relative `query:`. Read-back-assert the `Source` after creating each list field.
+   - **A query `Source` must SELECT THE ITEMS, not resolve to their container (ENFORCED, added 2026-08-11).** For a **flat picker** — `Multilist`, `Checklist`, `Droplist`, `Droplink` — the query's **RESULTS ARE THE OPTIONS**. So `query:$site/*[@@name='Data']/*[@@name='Developments']` is a defect: it is site-relative, it is not a fixed path, it reads as obviously correct, and it offers the author **exactly one useless entry — the Developments folder itself**. End every flat-picker query with a wildcard step, ideally template-filtered: `…/*[@@templatename='Development']` or `…/*`. **TREE browsers are the deliberate exception** — `Treelist`, `Droptree`, `Multiroot Treelist` **root** a browsable tree at the Source item and the author walks down, so ending at a single item is CORRECT for them and a wildcard is wrong. A blanket "must end in a wildcard" rule rejects the correct form for half of the selection types; the audit encodes the flat/tree split rather than the blanket rule. **One site shipped nine of these** (three Multilist, six Droplink) — every one passed the existing empty/absolute-path checks, and a hand sweep found only the three Multilists because Droplinks were not being looked at. The audit found the other six in one run.
+2. **JSON Rendering item** (`{04646A89-996F-4EE7-878A-FFDBF1F0EF0D}`), `componentName` = the **exact** map key.
+3. **Datasource Template** — the datasource template as an **item PATH** `/sitecore/templates/Project/<Brand>/<Site>/<Name>`, **NOT an item ID** (an ID `{GUID}` can break Edge layout serialization, esp. combined with a linked params template — 2026-07-18). **Datasource Location** — the query to the global container: `query:$site/*[@@name='Data']/*[@@templatename='<Name> Folder']|query:$sharedSites/*[@@name='Data']/**[@@templatename='<Name> Folder']`. **This field lists ADDITIONAL roots — it does not replace the page-local one.** Sitecore always offers the page's own `./Data` folder for a datasource-backed rendering; the query only *adds* the global per-component container(s) to the set of places a datasource may live. So setting it neither makes global the default nor disables local — **which home a given datasource gets is an authoring-time decision** (rule `83` placement bullet), not a build-time one. Set the query anyway on every component: without it there is no global option to promote a reused datasource into.
+4. **Shape A** (flat) → `Rendering Contents Resolver` = the Datasource Content Resolver; **Shape B** (parent+children) → `ComponentQuery` (parent scalars + `children.results` aliased fields) with the resolver **cleared** (§ 5 — resolver wins over query). Per ADR / `content-sdk-resolver-patterns`.
+5. **Rendering-parameters template — clone the HEADLESS source, LINK it, and force-PUBLISH it.** Clone the **JSS Experience Accelerator** Promo Parameters (`/sitecore/templates/Feature/JSS Experience Accelerator/Page Content/Rendering Parameters/Promo`) → the **4-base headless** set `Base Rendering Parameters`+`IDynamicPlaceholder`+`_PerSiteStandardValues`+`IRenderingId`; **NOT** the classic `Feature/Experience Accelerator/…` MVC 8-base set (`Standard Rendering Parameters`+`IStyling`+`Grid Parameters`+`IComponentVariant`+`ICacheable`+…) — headless can't serialize those in Edge. Store under **`<Site>/Rendering Parameters/`** — inside the site folder, never at the brand root (layout block above). **Set the rendering's `Parameters Template` field = the matching `<Name> Parameters` template `{GUID}`.** ✅ **This works reliably IFF all FOUR hold** (2026-07-20 + 2026-08-05 — the resolution of the whole "params link blanks every page" saga): **(a)** params inherit the **4-base headless** set, **(b)** the rendering's **`Datasource Template` is an item PATH, not `{GUID}`** (item 3), **(c)** the params templates are **published to Edge in their current 4-base state via a FORCE-republish** (`dotnet sitecore publish item -p {templatesRoot} -sub -rel -r`), and **(d)** the `Parameters Template` GUID is **DASHED** — `{1E5C4753-5F37-4405-846B-F86E6017A28C}`, never the dashless `{1E5C47535F374405846BF86E6017A28C}`. Miss any one — especially (c): a *smart* publish leaves a stale broken **8-base MVC** definition in Edge — and the Experience Edge `layout` query **silently drops the whole route** (`route=undefined`, no error → every page blank).
+   - **⚠️ (d) is the easy one to reintroduce from code.** Authoring GraphQL **returns `itemId` DASHLESS**, so any script that writes `{${itemId}}` straight back produces a dashless link that **reads back fine, asserts fine, and still drops the route** — the same trap item 8 documents for `__Masters`, on a different field. Re-dash before writing, and make the read-back assert the *dashed shape*, not merely non-empty. Confirmed on a canary, 2026-08-05: identical 4-base params + item-PATH `Datasource Template` + force-republish still blanked `/` until the GUID was dashed. **Treat every GUID-valued field write as dashed-by-default.**
+   - **⚠️ THIS ITEM IS A REQUIREMENT WITH FOUR PRECONDITIONS — IT IS NOT A PROHIBITION.** It has been misread twice as *"a Standard-Datasource rendering must NOT link a Parameters Template, because Edge drops the route."* That reading inverts the item: the four conditions are how you link it **safely**, not a carve-out for skipping it. That saga was caused by **violating one of (a)–(d)** — most often a dashless GUID or a smart-instead-of-force publish — never by the linkage itself. **Standing counter-evidence: one shipped site links a Parameters Template AND a Datasource Template on all seven renderings and serves fine** (dashed params GUIDs, item-PATH datasource templates). A rendering with **no** Parameters Template is the defect, not the safe option: authors get no styling controls at all. If a build wants to skip it, that is an `architecture_budget` decision to state out loud — not something to justify by citing this item. *(Misreading found and retired 2026-08-28, via a waiver that had cited this item as forbidding what it requires.)*
+   - **Rendering parameter vs datasource field — rule of thumb:** a **rendering parameter** controls **styling** (color, size, alignment, on/off) — a **Single-Line Text**, **Checkbox**, or **Droplink** over a fixed choice set; a **datasource field** holds **content**. Enumerated choice → a **Droplink** whose `Source` points at a folder of option items based on a **`Rendering Parameter Entry`** template (each with a `Value` field); create them under `Rendering Parameters/Content/<list>` (e.g. `Colors`, `Sizes`, `Alignments`). Never stuff the literal value into the `Source` field (`content-sdk-create-component` § Rendering-parameter Source rules).
+6. **Placeholder settings / allowed controls** + an **Available Renderings** entry — so it is insertable in Pages / via the Marketer MCP. **At end-of-build, VERIFY every project rendering is registered** in the appropriate `Presentation/Available Renderings/<group>` `Renderings` field (append the rendering's `{GUID}`, pipe-joined) — an unregistered rendering can't be added by an author in the Pages component picker (one site shipped with 7 of 21 unregistered, 2026-07-18).
+
+   **Under `scope_dial.delivery_parallelism: parallel` — create a PER-COMPONENT Available Renderings item, do not edit a shared one (2026-07-30).** Appending to one shared group's `Renderings` field is a single-item field write that every component tranche would make, which fails rule `71` check 4 and collapses the run to sequential. Instead each tranche creates its **own** `Presentation/Available Renderings/<ComponentName>` item containing just its own rendering — an **own-path** write, so it is parallel-safe and check 4 stops applying rather than being worked around. This is the same "no central registry" principle that governs barrels and `globals.css`, applied to the tenant. ✅ **CONFIRMED 2026-07-30** against a live CM, read-only: multiple Available Renderings groups coexisting is Sitecore's own **OOTB pattern** — a working site ships six (`FEaaS`, `Forms`, `Media`, `Navigation`, `Page Content`, `Page Structure`) and they are **independent additive registries**, verified by distinct `Renderings` field contents on each (22 / 3 / 0 renderings respectively). So Pages unions them; a per-component group is additive and needs no shared-field append. No probe tranche required. Trade-off when it does work: N groups in the authoring picker instead of one tidy grouped list; consolidate serially at the join later if that becomes annoying. Under `serial` this changes nothing — a shared group is fine.
+7. Standard values.
+8. **Folder template** (**`<Site>/Folders/<Name> Folder`** — inside the site folder, never at the brand root; layout block above) — set `__Standard Values.__Masters` (insert options) = the datasource template as a **DASHED GUID** `{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}`; a **dashless** GUID does NOT resolve → "non-existing item" in the Insert menu (2026-07-17). Then **instantiate the folder template** as a **global datasource container** item **directly under the site `Data` node** (`/sitecore/content/<Brand>/<Site>/Data/<Name>`, a sibling of the OOTB `Images`/`Promos`/`Link Lists`/`Texts` containers — **NOT** under a `Data/<Site>` subfolder), name = component, template = the folder template, so reused datasources have a home and Pages' Datasource Location (which points at the `Data` node) finds them (rule `83` local-vs-global; 2026-07-18). **A global (reused) datasource CONTENT item lives INSIDE its container** (`Data/<Component>/<item>`) — never a `Data/<Site>` site subfolder (don't invent one). Give globally-shared datasources **meaningful, self-descriptive names** (`GT Hero`, `Aero Gallery`, `Brand Heritage Timeline`) since the name is all an author sees in a shared picker. Single-page datasources stay **local** — under the page — not in the global container; chrome (Header/Footer) datasources are always local to the partial design. **Local datasources live under a `Data` folder (template `Page Data` `{1C82E550-EBCD-4E5D-8ABD-D50D0809541E}`) beneath the page / partial-design item** — never in the global site `Data` (a Footer, 2026-07-18). **AUDIT this — it is invisible from every other signal** (2026-08-05): the site had **no per-page `Data` folder anywhere**, datasources sat bare directly under each page, and nothing caught it — the pages rendered correctly, the build and tests were green, and a rendering-level schema audit scored 15/15 clean, because `Datasource Location` was the literal `./Data` pointing at a folder that never existed. Only an operator looking at the content tree saw it. Check placement explicitly per page; relocating later is safe (a Sitecore move preserves the item GUID and layout references are by GUID) but it is a live content mutation, so canary one page and re-assert the route before rolling.
+   - **THE METHODOLOGY, in one line: LOCAL WHEN POSSIBLE, GLOBAL WHEN NEEDED.** A datasource is **local by default** — it lives under `<Page>/Data/<Component>` and its list children nest inside it. It is promoted to global **only when it is genuinely reused**, and then the promotion carries a stated reason. "Global" is not a neutral default; it is a claim that more than one page needs this content, and that claim should be true.
+   - **Canonical shape: copy it verbatim.** Both halves exist at once, and they do different jobs:
+     ```
+     <Site>/Data/<Component>              ← global CONTAINER (folder template). What
+                                            `Datasource Location` points at; the home a
+                                            reused datasource would live in.
+     <Page>/Data/<Component>              ← the actual SINGLE-USE datasource item.
+     <Page>/Data/<Component>/01-…, 02-…   ← list rows, nested under the local item.
+     ```
+     The container existing does **not** mean content belongs in it. A build that creates only the containers and puts every real datasource in them has skipped the local half entirely — which reads as "structured" in the tree while every page shares one pool of content.
+   - **Measured failure, twice, and both times only an operator's eye caught it.** One site, 2026-08-05: no per-page `Data` folder anywhere, datasources bare under each page, `Datasource Location` pointing at a `./Data` that never existed — pages rendered, build green, rendering-level audit 15/15 clean. Another, 2026-08-28: every datasource in the site-global `Data/`, **`Home/Data` did not exist at all**, and the schema audit exited 0 — because its local-datasource axis only scans items **under `<Page>`**, and globally-placed datasources are *siblings* of the page, so they never enter the scan set. **The axis enforces "don't scatter datasources loose under a page"; it does not enforce "a single-use datasource must be local."** Those are different laws and only the first had a gate.
+9. **Icons — ONE icon per component, applied CONSISTENTLY to ALL its items.** Pick a single meaningful `__Icon` per component (via `content-sdk-icon-chooser`) and set it on **every** item the component owns: the **rendering**, the **datasource template** (+ its `__Standard Values`), each **list-element template** (+ SV), the **folder template** (+ SV), and the **parameters template** (+ SV). One component = one icon everywhere → the Pages palette + content tree stay readable (2026-07-18). Setting it on each template's `__Standard Values` too is what makes the **instances** (datasource content items, global containers) inherit the icon. **Use an icon name that EXISTS in this tenant's set** — `Office/32x32/` is missing many common names (`document`/`video`/`contact`/`navigate`/`flag`/`code`/`spotlight`/`billboard` render blank); prefer the OOTB **`SXA/16x16/`** set (`promo`, `rich-text`, `image`, `video`, `gallery`, `navigation`, `title`, `page-content`, …, harvested from OOTB renderings) or a confirmed `Office/` name — verify each renders.
+
+**Mechanism = clone-and-customize an OOTB component, live via Authoring GraphQL** (`content-sdk-create-component`; rule `83` schema path — the Agent API has no create-rendering/template endpoint, so schema over raw AGQL is expected; page/datasource **content** stays MCP-first). Cloning Promo / Link List / PageContent is what wires the correct base templates — **do not hand-build a template from scratch** (it lands on only `Standard template` and loses Page-Builder support). Derive the field set from **this app's own** components (rule `40`); **never** copy a sibling's fields field-for-field. Idempotent skip-if-exists + read-back (**assert the base-template set**); STOP on error.
+
+**Persist per delivery loop (rule `71`): `dotnet sitecore ser pull` the created schema items into `cm/`, then commit code + schema together.** Live-created-but-never-pulled renderings are unversioned and die on a tenant reset (one site's renderings were created live and never pulled back = fragile). The `cm/` module must include `/sitecore/layout/Renderings/Project/<Brand>` + `/sitecore/templates/Project/<Brand>` (a scoped `items.path`). Cadence = **per component tranche** — never one summarized end-of-run op (a crash loses it all).
+
+**Done only when it resolves live** — read the rendering back (`get_content_item_by_path`) and, at the tranche smoke, compose it on a page and render it. jsdom unit tests never touch the schema, so they cannot catch its absence.
+
+### 0a. AUDIT the schema before the tranche closes — this is the gate
+
+```sh
+node .agent/scripts/audit-sitecore-schema.mjs --cm <product>/cm --brand <Brand>
+```
+
+Exit 1 = defects. Run it at every delivery-loop exit, **after** the `ser pull` and **before** the commit, and fix what it reports.
+
+**Why a gate and not a checklist:** every defect above is invisible to all other signals. Pages render, the head-app build is green, unit tests pass, Edge serves content — while authors get no rendering parameters, unscoped media pickers, and datasources scattered outside their `Data` folder. One site shipped **103 rendering defects, 17 `Source` violations and 35 misplaced datasources** and none of it surfaced until an operator opened the content tree; another shipped **three components with no params template at all**. Both passed their builds. **The DoD above was already written and still got skipped** — a checklist nobody runs is not a control, so the audit is the control.
+
+The audit covers items 1/3/5/8/9 plus the `Source` law (by-type defaults, the relative-query rule, AND the flat-picker select-the-items rule), local datasource placement, and the **template folder layout** above. It also **fails a brand with zero renderings**: an empty row set cannot produce defects, so without that guard the gate prints `0/0 clean, defects 0` and exits 0 on a schema that was never built (one run scored exactly that on 2026-08-07, mid-run). Deliberate exceptions go in **`<product>/cm/.schema-audit-ignore.json` with a stated reason** — anything undeclared still fails, so silence means someone decided, never that nobody looked. Four waiver kinds:
+
+```jsonc
+{ "<Brand>": {
+    "reason": "brand-level justification for the component waivers below",
+    "components": { "Header": ["DatasourceTemplate", "DatasourceLocation"] },   // defect-message PREFIXes
+    "looseDatasources": [                                                       // item 8 placement decisions
+      { "path": "/Home/Destinations/*", "reason": "routable content — deliberately addressable, not a datasource" }
+    ],
+    "layout": [                                                                 // template folder layout
+      { "path": "Acme SEO", "reason": "page-level SEO base template — belongs beside Page at the brand root" }
+    ],
+    "emptySchema": { "reason": "provisioning-only module; renderings live in the sibling brand" } } }
+```
+
+`layout` waives a template whose placement is deliberate — `path` is written **as the audit reports it** (relative to `/sitecore/templates/Project/<Brand>/`) and accepts a trailing `/*` / `/**`. Like `looseDatasources` it carries **its own mandatory `reason`**, since placement is a per-item call that one brand-wide sentence cannot justify. `emptySchema` waives the zero-rendering guard for a module that legitimately has none. Both follow the same discipline: missing or token reason ⇒ hard config error (exit 2), and waivers matching nothing print as **stale** so they get retired.
+
+**The disk audit has one blind spot that no waiver covers, and it needs a LIVE check beside it:**
+
+```sh
+node .agent/scripts/check-template-base-chain.mjs --brand <Brand> --cm <cm_code_base> --org <org> --tenant <tenant>
+```
+
+Run it in the **same tranche-exit step as the schema audit**, after the `ser pull` and before the commit, whenever the tranche created or modified project templates. Exit 1 = at least one base chain does not resolve. `__Base template` is written pipe-delimited live and Sitecore's template engine splits **only** on `|`; a value joined with newlines resolves to **zero** base templates and the item silently loses every inherited field — while its own fields read fine, the component renders, and inline editing works. What breaks is anything built by template-engine **aggregation**: Pages' Content pane renders empty, the Content Editor prints raw GUIDs. **SCS serializes both the correct and the broken value to byte-identical YAML** (one GUID per line, re-joined on push), so `audit-sitecore-schema.mjs` is structurally incapable of seeing it — do **not** "fix" its lenient `/[|\n]+/` parser, which would flag every correctly-serialized brand as broken. The defect is introduced by writing the field over **raw AGQL with the wrong separator**, bypassing SCS's join, which is exactly what a tranche doing live schema creation does. Measured 2026-08-28: one site's `OpeningBanner` resolved **0** base templates and another's `Hero Media Band` resolved **18**, from identical-looking YAML; five of the six defects the operator found by eye that day sat behind a green audit run. Same pipe-vs-newline law as rule `83`'s Multilist separator — the field differs, the trap does not.
+
+`looseDatasources` (added 2026-08-11) waives an accepted **placement** decision — content that lives directly under `/Home` rather than under a page's `Data` folder because it is a route, not a datasource. Each entry carries **its own mandatory `reason`** (a placement call is per-item, so one brand-wide sentence cannot justify it); a missing or token reason is a hard config error (exit 2), not a silent pass. `path` is written **as the audit reports it** (rooted at `/Home`) and accepts a trailing `/*` (direct children) or `/**` (any descendant). Waivers that match nothing are printed as **stale** so they get retired. Without this, a justified placement made the audit exit 1 forever — and a permanently red gate is one people stop reading.
+
+## 0b. Build-phase composition uses a **Components Preview** tree — the REAL pages are authored ONCE, in the content phase
+
+Prove every component renders during `/implement` (assembly) by composing a dedicated **Components Preview** page tree with **throwaway** content — never on the real pages. Structure (this is the operator's single end-of-build review surface, so it must read cleanly):
+
+- Under `Home`, a **`Components Preview`** root page; under it **one subpage per component** (idempotent — skip a subpage that already exists), composed by the **Content Author (14)**, spawned by QA at `/test` immediately before the visual pass; **07 audits** it.
+- On a component's subpage, compose **all of that component's variants**, labelled — so one subpage = one component, every variant visible in a single scroll. Structural components get their inner placeholder(s) filled with sample children (never an empty box); header/footer-placeholder components sit in their real band.
+- The **"0 empty slots" completeness gate** (e.g. the task breakdown's T049) checks THIS tree — every placed component renders non-empty.
+
+This is the **same tree `/discover-components` reuses** in the content phase (it re-screenshots it for the Components Map, idempotent skip-if-exists) — build it once here, don't create a second one. Renamed from the earlier flat "Components-Test page" (2026-07-16) — same purpose, now per-component/all-variants so operator review + the completeness gate both read cleanly.
+
+**Do NOT author first-pass content on the real pages** (Home, coverage, …) during the build: create them routable + chromed (via the Page Design), but leave **body composition + all content to the content phase** (`/author-content`), which composes AND authors them **once** against the real voice + imagery — never first-pass-then-overwritten. This kills the double-authoring seam (assembly first-pass → content-phase rewrite). The build only needs to prove the components + schema render; that proof belongs on the Preview tree, not on pages a human will read. (One PRD-000 predates this — its real pages carry first-pass content the content phase overwrites; grandfathered.)
+
+**Operator review is ONE gate at end-of-build — never mid-build.** The Components Preview page is *built* autonomously as components land; it is *shown to the operator once*, at the end of the whole build (the `build` gate at `/test` close on a content-sdk run; the `final` gate at `/test` for non-content runs), after code-review + QA are clean. Do **not** stop `/implement` to have the operator eyeball the Preview page after a component or before review/QA (rule `71-delivery-loop.mdc` — the build phase is autonomous; the single build review is at the end).
+
+- **06 Lead Developer:** plan the Preview tree as QA's fixture setup (one subpage per component, all variants), not the real pages, and not as Developer tasks.
+- **14 Content Author — COMPOSES the Preview tree; 07 QA AUDITS it (2026-07-30).** It is **test scaffolding, not content** — but *composing* it is authoring, which is 14's identity and skill (`sitecoreai-content-composition`) and model tier. So at `/test`, QA (07) **spawns 14** to compose the `Components Preview` root (idempotent) plus one subpage per in-scope component with all variants and throwaway content; **07 then audits** that tree with the visual pass and the "0 empty slots" gate. Author and auditor stay separate — 07 never grades a tree it built. **Under `scope_dial.delivery_parallelism: parallel` this is the only place the tree is written**, which is why concurrent Developer tranches need no shared-parent write at all (no root check-then-create race, no parallel-sibling `__Sortorder` scramble — one actor, sequential). Under `serial` it is identical, just per tranche's QA leg.
+- **08 Developer:** does **not** write the Preview tree. Build the component + its live rendering schema; real pages get chrome + Page Design but no body content. (Before 2026-07-29 the Developer added each subpage as its tranche exited; that made the tree a shared-parent write inside the parallel window for no benefit.)
+- **14 Content Author:** `/author-content` **composes AND authors** the real pages (full ownership), once.
+
+### 0b-i. Seeded scaffolding is identified BY ITS PATH, and never publishes
+
+Nothing distinguished content the pipeline seeded for itself from content a human wrote for readers, so a later stage saw "content exists" and assumed the job was done. On a prior run that let the POC's own placeholder copy reach five live fields as real content, and left seven SXA sample datasources — including a *"Made by Sitecore"* link — sitting in `Data` folders that `/publish` would have shipped.
+
+**The marker is the path**, not a field. Everything the pipeline seeds for its own purposes lives under one known root:
+
+```
+<site>/Home/Components Preview/**        <- build-phase proof + the Components Map surface
+```
+
+That is enough to make "is this real content?" a path check instead of a judgement call, and it needs no schema change, no new field to forget to set, and no field a `ser push` could drop.
+
+Three consequences, all mechanical:
+
+1. **`/publish` excludes the tree.** Never pass its root or any descendant in `--items`, and never reach it via `--root` on an ancestor with `publishChildren`. A published `Components Preview` puts lorem ipsum on a public site under a real brand.
+2. **It is EXCLUDED from publish, and torn down only on operator confirmation at `/publish` close** — not at `/test-content`, and never unilaterally. Excluding it already solves the real risk (shipping throwaway content under a real brand); deleting it early only removes the operator's review surface. **Corrected 2026-08-28**: an earlier draft of this rule said "torn down at the `/test-content` close", and one run deleted the tree during cleanup — so when the operator came to inspect the build in Sitecore, the one surface showing every component and every variant was gone, and the components map that documents it had nothing live to point at. A routable page does still need removing before go-live (no inbound link is required for it to be crawled and indexed) — the question is only *when*, and the answer is **after the human has looked**.
+3. **A stage that finds content ONLY under this root has found no content.** Treat it as an empty site, not a populated one.
+
+**Scaffold residue is a different problem and needs its own sweep.** The SXA sample datasources do *not* live under the marked root — they arrive inside the real `Data` folders from the site template. Sweep **every** `Data` folder, not just the page's own, before publishing.
+
+## 1. Chrome = registered Header/Footer renderings in the Partial Designs — NOT hand-placed per-page, NOT hidden from `generate-map`
+
+Chrome (header, footer, and any promo/announcement/utility bar) is authored the **SitecoreAI-native** way: Header and Footer are **real, registered renderings** placed into a **Header Partial Design** and a **Footer Partial Design**, which the **Page Design** inherits via its `PartialDesigns` field — so every page picks up chrome **through the Page Design, never per-page**. **`/provision-sitecoreai` creates and links that structure**; **`/author-content` decides + places what fills the partials**.
+
+- **Build Header and Footer as registered renderings in `src/components/`** — a `SiteHeader` that lives in `src/site/` (outside `src/components/`) or is left out of the component map produces a runtime **MissingComponent** box in the Partial Design (the chrome, and the theme toggle inside it, is **absent from the DOM**, not merely warned about). Registering them is what closes that box.
+- **Place them once, in the Partial Designs** — the Header rendering into `headless-header` on the Header PD, the Footer rendering into `headless-footer` on the Footer PD (`/author-content`). Never add chrome renderings to a page's own layout or into `headless-header`/`headless-footer` on individual pages — that is the per-page anti-pattern the Page Design exists to prevent.
+- **The theme provider is NOT chrome — it stays in the route layout.** Keep the SSR-safe theme *context/provider* (the `useSyncExternalStore` provider + the FOUC preflight `<script src="/theme-init.js"/>`, rule 6) in `src/app/[site]/[locale]/[[...path]]/layout.tsx`, wrapping `{children}`, so it is present even before layout resolves and on error pages. Only the **visible chrome** (logo, nav, the toggle's UI, promo bar) becomes registered Header/Footer renderings in the Partial Designs. Draw the line at: provider/context = route layout; painted header/footer/toggle-UI = Partial-Design renderings.
+
+## 2. Nested placeholders use `AppPlaceholder` + the SERVER component map — never the bare `Placeholder`
+
+The bare `Placeholder` resolves `page`+`componentMap` from `SitecoreProvider` context, which in App Router carries the **client** map (`BYOCWrapper`/`FEaaSWrapper`/`Form` only). Your server renderings live in the **server** map → every nested child renders "**Placeholder X contains unknown component**".
+
+`AppPlaceholder` injects `{ page, componentMap }` into every child it renders, so a layout component (Container/Row/Splitter/`PartialDesignDynamicPlaceholder`) receives them as props and must forward them:
+
+```tsx
+import { AppPlaceholder } from '@sitecore-content-sdk/nextjs';
+type RowProps = ComponentProps & { page?: Page; componentMap?: ComponentMap }; // injected by parent
+<AppPlaceholder name="row-content" rendering={rendering} page={page as Page} componentMap={componentMap as ComponentMap} />
+```
+
+Container/RowSplitter/ColumnSplitter come from the `content-sdk-layout-composition` skill (`assets/components/`, hardened ports of `xmcloud-starter-js` `examples/kit-nextjs-article-starter`; the scaffold ships only `PartialDesignDynamicPlaceholder`), together with its helper and its static grid CSS — the `.tsx` alone renders stacked, unstyled columns. Don't hand-roll them. Jest masks this entirely; only a real browser surfaces it → Playwright-smoke any nested placeholder, and run `check-layout-wiring.mjs` at tranche exit.
+
+## 3. Editing-safe components (Pages canvas)
+
+> This section is how to be editing-safe **given** the component takes its content from `fields`. **Rule `86-component-authorability.mdc` is what requires it to.** If a component reads its own content by fixed path and renders plain strings, nothing below applies — there is no chrome to keep safe, and the component is un-editable no matter how correct the rest of it is.
+
+- **Empty fields must stay authorable.** Never guard a field with bare `hasValue` — that hides it from the author too. Use `{fields?.X && (isEditing || hasValue) && <Helper field={fields.X}/>}`. Keep the `fields?.X &&` existence check so a not-yet-built field can't crash the helper.
+- **Editing detection:** server components derive it from a Text field's metadata — `const isEditing = !!fields?.Title?.metadata;` (also `!!ds?.heading?.jsonValue?.metadata` for integrated-GraphQL containers). `ImageField`/`LinkField` don't carry metadata — read it off a Text field.
+- **Presentational forms must be inert in editing:** `if (isEditing) return;` at the top of `handleSubmit`, and `type={isEditing ? 'button' : 'submit'}`. Field-backed `<label>`: `htmlFor={isEditing ? undefined : 'x'}` (else the label steals the click and can't be authored).
+- **Empty data-driven containers need an editing-only affordance.** A children/integrated-GraphQL container with no data renders nothing → no click target to select it in Pages → author is stuck. Render a visible dashed placeholder when `isEditing && <no data>`. Put the helper OUTSIDE `src/components/` so `generate-map` doesn't register it.
+
+## 4. Never flip a server component to a client component just to read edit mode
+
+Reading `useSitecore().page.mode.isEditing` requires `'use client'`. Converting a server component that's already in the tree to a client component throws **"Functions cannot be passed directly to Client Components"** and **500s the whole page** — and HMR cannot recover a server↔client nature change (restart the dev server). Keep the component a **server** component and derive `isEditing` from `jsonValue.metadata` (rule 3). Only use the `useSitecore` hook in components that were client components to begin with.
+
+## 5. Integrated GraphQL containers (inline-editable lists)
+
+- For a heading + list of inline-editable child cards, use **Integrated GraphQL** returning each field as **`jsonValue`** (not `value`) — `jsonValue` carries editing metadata, so parent and every child are inline-editable via `<Text>`/`<Image>`/`<Link>`.
+- **The resolver wins over the query.** If both a `Rendering Contents Resolver` and a GraphQL Query are set, the resolver runs and the query is dormant → the component gets Shape B (`fields.items`) and renders empty. Clear the Rendering Contents Resolver field (this is a CMS-side check — flag it to the operator).
+
+## 6. Hydration & scaffold hygiene
+
+- Theme/FOUC apps: `suppressHydrationWarning` on **both** `<html>` and `<body>` in the root layout (a preflight script mutating them pre-hydration otherwise triggers React 19's tree-regeneration, which wipes Pages editing chrome).
+- Use a **plain** `<script src="/theme-init.js" />` in `<head>` — NOT `next/script` (`beforeInteractive` doesn't remove the warning and adds a root-layout hydration variable). The dev-only sync-script lint warning is noise.
+- Exclude test files from the component map: `componentExclude: ['**/__tests__/**', '**/*.test.tsx', '**/*.test.ts']` in `sitecore.cli.config.ts`, or `generate-map` registers them as renderings and breaks `next build`.
+- Turbopack does NOT hot-reload `globals.css`. After editing it under `npm run dev`: kill the server, `rm -rf .next`, restart. Verify by grepping the served CSS chunk before claiming it's live.
+
+## 7. Production delivery — use the LIVE context id (the single most expensive deploy trap)
+
+A head app deployed with the **preview** `SITECORE_EDGE_CONTEXT_ID` reads the preview Edge variant, whose **media URLs point at the auth-gated CM host** → every image **302s to the Cloud Portal login** for anonymous visitors while text renders fine. It works in `npm run dev` (preview is what dev is for), so it's invisible until the real deploy.
+
+- Set **BOTH** `SITECORE_EDGE_CONTEXT_ID` **and** `NEXT_PUBLIC_SITECORE_EDGE_CONTEXT_ID` to the **LIVE** context id (the `NEXT_PUBLIC_` one is baked into the client bundle — a mismatch is worse than either alone). Live context → media served from the public CDN `edge.sitecorecloud.io/<tenant>/media/…` (no `ttc/tt/hash` protection tokens).
+- The live context can only serve media that's on the **published** target. After uploading/linking media via the Authoring API, run a full **Republish** before relying on it (a Smart publish after the last full Republish may not push the media library).
+- Routes are SSG → context id + media URLs bake at build → **redeploy** after any env change; a reload of the running deployment won't pick it up.
+- **One-line diagnosis:** *media 302→`app.sitecorecloud.io` while text renders = production is on the preview context id.* Confirm by the media host — `xmc-…sitecorecloud.io/-/media` (CM, broken) vs `edge.sitecorecloud.io/…/media` (published CDN, correct). Verify in a real browser, never curl.
+
+## 8. Import field components from `@sitecore-content-sdk/nextjs`, never `/react`
+
+Import field components (`Text`, `RichText`, `Image`, `Link`) and their field types (`TextField`, `RichTextField`, `ImageField`, `LinkField`) from **`@sitecore-content-sdk/nextjs`** — never `@sitecore-content-sdk/react`.
+
+```ts
+// ❌ Wrong — drags @sitecore/byoc's raw src into next build's type-check
+import { Text, Image, Link } from '@sitecore-content-sdk/react';
+import type { TextField, ImageField } from '@sitecore-content-sdk/react';
+
+// ✅ Right — identical symbols, clean type surface (the scaffold's own pattern)
+import { Text, Image, Link } from '@sitecore-content-sdk/nextjs';
+import type { TextField, ImageField } from '@sitecore-content-sdk/nextjs';
+```
+
+**Why:** `@sitecore-content-sdk/react`'s type surface transitively pulls `@sitecore/byoc`'s `types/index.d.ts`, which re-imports `../src/*.js` → TypeScript resolves those to the package's raw `src/*.tsx`. Those vendored sources fail strict type-check, so **`next build` fails on `node_modules/@sitecore/byoc/src/…`** — even though `npm run dev` renders, `vitest` passes, and a sibling head app importing from `/nextjs` builds fine on the exact same dep versions. It's invisible until a real `next build` (dev + Vercel's own resolution both tolerate it). Cost a full debugging session (a prior run, 2026-07-01): the app rendered + passed 111 tests but every `next build` broke on vendored `byoc/src`; the fix was a one-token import swap across 22 files to match the other head apps.
+
+- **One-line diagnosis:** *`next build` type-errors inside `node_modules/@sitecore/byoc/src` (or `@sitecore-feaas/clientside/src`) while dev + tests are green = a `@sitecore-content-sdk/react` import.* Confirm with `npx tsc --noEmit --explainFiles | grep byoc/src` — the chain starts at your component's `/react` import.
+- **Enforce it** in `eslint.config.mjs` so it can't reappear: `'no-restricted-imports': ['error', { paths: [{ name: '@sitecore-content-sdk/react', message: 'Import field components from @sitecore-content-sdk/nextjs — /react drags @sitecore/byoc src into next build.' }] }]`.
+- `@sitecore-feaas/clientside/react` (the BYOC bundler in `src/byoc/`) is a **different** package and stays — this rule is only about `@sitecore-content-sdk/react`.
+
+## 9. A head app on a SHARED CM must scope itself — build, test server, and outputs
+
+One measured CM served ten sites behind **one** Edge context. Three defaults assume a
+one-app-per-tenant world and each one lets a sibling brand reach into this app.
+
+### 9a. `generateStaticParams` — scope to the sites this deployment SERVES (defect C-02)
+
+`.sitecore/sites.json` spans the **whole shared Edge context**, so the scaffold default —
+
+```ts
+return await client.getAppRouterStaticParams(sites.map((s) => s.name), routing.locales.slice());
+```
+
+— pre-renders **every brand on the CM**. One sibling in a broken content state then fails
+**this** app's build, for content this app does not own and cannot fix.
+
+**Declare what the deployment serves** and enumerate only that. The shape that worked is a `src/lib/site/served-sites.ts` exporting `servedSiteNames(sites)`, with a
+`SERVED_SITES` declaration and **`'*'` meaning "serve everything"**:
+
+```ts
+// Scoped to what this deployment declares it serves.
+return await client.getAppRouterStaticParams(servedSiteNames(sites), routing.locales.slice());
+```
+
+**Remove or widen the scoping to `'*'` if a single host is ever meant to serve several
+brands** — that is a legitimate configuration, and the declaration is the place to say so.
+Almost every head app here is single-brand, so scoped is the right default.
+
+⚠️ **This does not close the `?sc_site=` bleed** — the route still resolves other sites on
+demand. It bounds the **build**, which is where the cross-brand coupling actually bites.
+
+### 9b. Playwright must not adopt a foreign dev server (defect C-05)
+
+`reuseExistingServer: true` (the scaffold default) attaches to **whatever** is already on
+the port. With several head apps in the workspace and concurrent sessions, that silently
+runs the suite against **another brand's app** — and it passes, because the assertions are
+generic enough. Pin both:
+
+```ts
+webServer: { reuseExistingServer: false, port: <a port unique to this app> },
+use: { baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:<that port>' },
+```
+
+### 9c. Test output belongs to the app, never the CWD (defect C-10)
+
+Screenshots and traces written to a bare relative path land wherever the process was
+launched — twice, that was the **framework repo root**. Set `outputDir` (and any ad-hoc
+screenshot path) relative to the app directory, not the working directory.
+
+### 9e. Raise `testTimeout` — a 5s default cascades under load (defect C-07)
+
+Vitest's 5s default is too tight for a **cold first render** on a loaded machine, and a timeout does not merely fail its own test: **the aborted test never reaches `afterEach(cleanup)`**, so its DOM stays mounted and the *following* tests in that file fail with `Found multiple elements` or duplicated list items. Three slow tests become thirty-five failures, spread across files, with error messages that read exactly like shared state between tests.
+
+That misreading is the expensive part. Measured on a prior run: three parallel runs gave **39/74, 62/74, 63/74** with **11 tests failing in all three** — which looks deterministic, so "shared state" is the natural conclusion — while serial gave **74/74**. Raising **only** `testTimeout` gave 74/74 in parallel, twice.
+
+```ts
+// vitest.config.ts
+test: { testTimeout: 20_000 }
+```
+
+**Diagnose before prescribing.** The tempting fix is `fileParallelism: false`, and here it would have "worked" — while hiding that there was nothing to hide, at the cost of every future run's wall-clock. The cheap experiment that decides it: **run the parallel suite three times and compare *which* tests fail.** Then read a real error — a timeout means contention; an assertion failure on the *first* test of a file means genuine shared state. If a stable set fails every time, check whether each is the first test in its file, or the one right after a timeout, before concluding it is deterministic.
+
+### 9d. `npm run dev` must not hard-pin `--inspect` (defect C-09)
+
+The scaffold's `dev` script sets `--inspect`. With a second dev server already running,
+the debug port collides and **every route returns 500 while the console prints "Ready"** —
+which reads as an application bug and is a port conflict. Leave it off by default, or move
+it to a separate `dev:debug` script.
+
+## Verification discipline (the recurring failure mode)
+
+Dev-green ≠ done. Almost every trap above passed `tsc`/lint/unit tests. The reliable gate is the triad: **fresh production build + real browser + against the real published Edge.** Specific false-greens to refuse:
+- Playwright `reuseExistingServer: true` silently reusing a stale `:3000` dev server running old code.
+- A sub-agent reporting "all green" without a fresh `next build`.
+- Verifying against Preview Edge when production reads Published Edge (different media shapes — see rule 7).
+- **A green board on a site nobody looked at.** Data-flow guards, markup/a11y review, and HTTP-status smoke can ALL pass on a site with no page gutter and every detail page unreachable. Two mechanical checks close this and neither needs a POC — run both against **localhost on preview** (the editing host 403s unauthenticated and `/api/editing/render` 302s into OIDC, so headless verification against the EH is impossible; localhost reads the same preview Edge context):
+  1. **Crawl from `/` and assert every discovered internal link returns 200.** A link to an item with no layout (a datasource path under `/Data/**`) 404s while the linking page renders perfectly. **Then assert destinations are DISTINCT** — a 200 proves a link resolves, not that it goes anywhere. A link to `/` returns 200 from every page, so an entire nav can be dead at a perfect crawl score. Group nav links by resolved href and flag any shared destination; treat `/` on a non-home page as a stub until proven intentional. One site shipped with all seven header links pointing at `/`, mirrored from the POC clickdummy where nav is stubbed to `index.html` — **a clickdummy's stubbed interactions are not a routing specification.**
+  2. **Assert content is inset like the chrome, at desktop width — for EVERY section, not the first one.** Compare the computed `x` of the header's inner bar against **each** content block in `<main>`, and assert they all share one left edge and one width. Narrow-viewport responsive contracts cannot see this — edge-to-edge content produces no horizontal scroll. Read **computed** values: an undefined custom property silently degrades `max-width: var(--x)` to `none`, so the CSS reads correct while the page renders uncontained. Two refinements this rule cost real runs:
+     - **Sample every section.** Checking only the first landmark passes a page whose seventh section is full-bleed. One site's `Testimonial` returned a bare `<figure class="quote">` instead of the POC's `<section class="section reveal"><figure …>`, so it alone spanned the viewport while nine siblings sat in the 1200px measure — past 716 unit tests, 37 e2e, lint, tsc, build and a code review, and found by the operator on a wide screen. **Comparative geometry is the check that bites**: siblings must agree with each other, whatever any one of them asserts about itself.
+     - **Measure the CONTENT box when the measure comes from padding.** Where the section wrapper is full-width and creates the measure with a symmetric `padding-inline` (the common shell idiom), every border box is viewport-width and agrees with itself forever. Subtract the computed padding, or the check is vacuous.
+     - **Full-bleed must be a declared allowlist** (bands, sill surfaces, sticky bars), never inferred from "it's wide" — otherwise the exemption swallows the defect.
+  2b. **When porting a POC section, port the WRAPPER, not just the inner block.** The measure, the reveal animation and the vertical rhythm usually live on the outer element, and the inner block is what carries the visible styling — so dropping the wrapper produces a component that looks right in isolation and is misplaced on the page. Diff the ported markup against the POC's element chain, not just its leaf.
+
+  Both are `/test` § 1d-ii steps 2b and 6b. Live precedent: a prior run's PRD-000 shipped and merged with no `main` container rule and 26 of 32 routes 404 — every gate green, ship report claiming "32/32 routes live".
+
+## Agent application
+
+- **04 Architect:** ADRs for the chrome model (rule 1 — Header/Footer as registered renderings in the Partial Designs, inherited via the Page Design; theme provider stays in the route layout), integrated-GraphQL vs composition for lists (rule 5), and the LIVE-context deploy contract (rule 7) belong in the architecture doc up front.
+- **06 Lead Developer:** every container/list task's § 4c must specify `AppPlaceholder` + server-map forwarding (rule 2) and the empty-state editing affordance (rule 3); every component task notes the `isEditing || hasValue` guard.
+- **07 QA Specialist:** the smoke contract includes a real-browser Pages-canvas check (rules 2, 3, 4) and a production-deploy media check on Published Edge (rule 7) — unit tests cannot catch any of these. It also includes the two mechanical rendered-surface checks under "Verification discipline" (whole-site 200 crawl + desktop containment assertion), run against localhost on preview; a page type with **no POC counterpart** is a `coverage` finding, never a reason to drop to smoke-level checks.
+- **08 Developer:** build each component's **rendering schema** by **cloning an OOTB component** (`content-sdk-create-component` — inherits the correct base templates, always a params template, sets icons): JSON Rendering + datasource template(s) + resolver/ComponentQuery + parameters/placeholder settings + Available Renderings, live via AGQL **in the same tranche as the code**, then `ser pull` it into `cm/` per delivery loop (rule 0); apply rules 1–6 while porting each component; never flip server→client for edit mode (rule 4). At deploy, enforce rule 7.
+
+## Pitfall index
+
+- component built in code + unit-tested green, but `Renderings/Project/<Brand>` is empty at assembly → nobody created the Sitecore schema → build the JSON Rendering + datasource template(s) + resolver/ComponentQuery **in the component's own tranche** and `ser pull` it into `cm/` (rule 0).
+- `add_component_on_page` / `get_allowed_comps_by_ph` 404s or has nothing to place → the rendering item does not exist yet → rule 0 (the MCP places renderings; it does not create them).
+- Pages list picker shows the content-tree roots (Home / the collections) instead of the datasource's own children → the Multilist field `Source` is a fixed path (`/sitecore/content`) or unset → set it to a datasource-relative, template-filtered query `query:./*[@@templatename='<ChildTemplate>']` (rule 0, item 1); editor-only, rendering is unaffected so it's silent until an author opens the picker.
+- `headless-header` → `SiteHeader` missing-component box → build Header/Footer as registered renderings in `src/components/` and place them in the Header/Footer Partial Designs (rule 1); keep only the SSR-safe theme provider in the route layout.
+- chrome placed per-page in `/headless-header` (e.g. a promo bar) → chrome not site-wide + duplicated per page → move it into the Header Partial Design, inherited via the Page Design (rule 1).
+- nested `<Placeholder>` → "unknown component" for every child → `AppPlaceholder` + forwarded SERVER map (rule 2).
+- `{href && <Link/>}` → field invisible to author → `(isEditing || hasValue)` (rule 3).
+- empty container → no click target in Pages → editing-only dashed affordance (rule 3).
+- `'use client'` added to read `isEditing` → 500 "Functions cannot be passed to Client Components" → derive from `jsonValue.metadata` on the server (rule 4).
+- integrated-GraphQL component renders empty → Rendering Contents Resolver not cleared (rule 5).
+- inline editing dead + "Hydration failed" → `suppressHydrationWarning` on html+body; plain `<script>` (rule 6).
+- `next build` fails after adding tests → exclude `*.test.tsx` from `generate-map` (rule 6).
+- production images all 302→login, text fine → preview context id in prod; switch BOTH vars to LIVE + Republish + redeploy (rule 7).
+- `next build` type-errors inside `node_modules/@sitecore/byoc/src` while dev + tests pass → a `@sitecore-content-sdk/react` import; swap to `@sitecore-content-sdk/nextjs` (rule 8).
+- datasource/params template inherits only `Standard template` → it was built from scratch, not cloned → clone the OOTB source (Promo / Link List / PageContent) so it inherits `_PerSiteStandardValues` / `Base Rendering Parameters` / etc.; assert the base-template set (§ 0).
+- **every page renders blank / Edge `layout` returns `route=undefined` with no error, after adding rendering-parameter templates** → a datasource-backed rendering has its `Parameters Template` field SET → Experience Edge can't serialize datasource + params together and drops the whole route → **unset `Parameters Template` on datasource-backed renderings**; only context-only renderings may link one (§ 0, item 5; 2026-07-17).
+- folder Insert menu offers a **"non-existing item"** as the insert option → `__Standard Values.__Masters` was written as a **dashless** GUID → rewrite it **dashed** `{XXXXXXXX-XXXX-…}` (§ 0, item 8).
+- a rendering / datasource / folder shows the default document icon → `__Icon` never set → run `content-sdk-icon-chooser` (§ 0, item 9).
+- `__Icon` IS set but the item still shows blank/default in the tree → the icon name doesn't exist in this tenant's icon set (`Office/32x32/` lacks many common names) → use an `SXA/16x16/` or confirmed `Office/` name and verify it renders (§ 0, item 9).
+- one section spans the viewport while its siblings sit in the measure → the component returned its inner block and dropped the POC's outer `.section` wrapper (which carries the width AND the reveal) → port the whole element chain, and assert **all** sections' CONTENT boxes agree, not just the first (Verification discipline 2 / 2b; 2026-08-11).
+- a CSS `content:` escape renders as a tofu box followed by a stray letter (`▯C` for `\201C`) → the stylesheet was written through a layer where `\201` is an **octal** escape (Python strings, some heredocs), so the file holds U+0081 + `C` → write such files with explicit code points (`String.fromCharCode`) or a raw string, and assert no C1 control character (U+0080–U+009F) reaches generated content (2026-08-11).
+- a sort/flag parameter stuffs `Ascending`/`Descending` (or a color/size) into the `Source` field → invalid (the `Source` resolves items only) → boolean = **Checkbox**, enumeration = **Droplink** over a folder of option items (`content-sdk-create-component` § Rendering-parameter Source rules).
+
+## Cross-references
+
+- `/provision-sitecoreai`, `/implement`, `/author-content`, `/publish` — owning stage contracts for Content SDK chrome, per-component build, and go-live.
+- `content-sdk-create-component` skill — the clone-and-customize schema recipe: base-template inheritance tables, the folder template, rendering-parameter Source rules, and icons (the § 0 Definition-of-Done references it).
+- `86-component-authorability.mdc` — the requirement that authored values arrive on `fields` at all, so §§ 3/5/8 have something to protect. Gated by `audit-component-authorability.mjs`.
+- `40-sdk-contracts.mdc` — field types from `node_modules` `.d.ts`, not prose. **Not** a licence to fetch content instead of taking it from `fields` (see rule `86`).
+- `50-scaffold.mdc` — run `create-content-sdk-app` literally; this rule covers what it omits.
+- `60-react-effects.mdc` — the `useSyncExternalStore` theme pattern these components rely on.

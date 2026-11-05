@@ -1,0 +1,28 @@
+# Secrets: client ids and secrets, Edge context ids, tokens. Keep the example, never the real file.
+.env
+.env.*
+!.env.example
+
+# Per-machine configuration
+.agent/workspace.json
+.claude/settings.local.json
+
+# Each product (a Content SDK head app, a CM codebase) is its own git repository under products/.
+# Only the framework's own planning surface, products/_root/, belongs to this repo.
+products/*
+!products/_root/
+!products/_root/**
+
+# Build output and tool caches
+node_modules/
+.next/
+out/
+dist/
+.vercel/
+.turbo/
+coverage/
+.worktrees/
+.playwright-mcp/
+*.log
+.DS_Store
+Thumbs.db

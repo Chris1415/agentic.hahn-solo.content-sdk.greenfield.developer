@@ -1,0 +1,239 @@
+---
+description: Sitecore content management (pages, datasources, field values, component placement, media) goes through the Marketer MCP FIRST. Raw Authoring GraphQL / SitecoreAI REST is a FALLBACK only for what the MCP has no tool for (schema/templates/renderings, component-variant selection). Pages created via raw createItem do not route - use the MCP create_page. Re-auth the MCP rather than falling back. BEFORE the first write, probe the BINDING: the MCP URL names no tenant or environment, so the target comes from the session alone and a read-back through the MCP proves nothing.
+alwaysApply: true
+---
+
+# Content Management - Marketer MCP First, REST Only for Gaps
+
+## The rule
+
+Any agent that MANAGES Sitecore content - creating/editing pages, datasources, field
+values, placing/removing components, media, and page composition - uses the
+**Marketer MCP** (`mcp__sitecore-marketer__*`) as the first and default mechanism. Raw
+**Authoring GraphQL / SitecoreAI REST** is a **fallback only** for operations the Marketer
+MCP does not expose. This applies to BOTH content surfaces:
+
+- **Developer (08)** during `/implement` Phase 6 live content-model authoring.
+- **Content Author (14)** during `/author-content` and `/test-content` fixes.
+
+## BEFORE the first MCP write — probe the BINDING (where), not just the result (what)
+
+Everything else in this rule verifies **what** was written. None of it verifies **where**. The
+Marketer MCP endpoint (`https://marketer.sitecorecloud.io/mcp/marketer-mcp-prod`) carries **no
+tenant, no environment and no host** — the write target comes entirely from the authenticated
+session, so it is unassertable from anything readable. `assert-tenant.mjs` does **not** cover
+this channel and must not be extended to: its guarantee is *derive the host from the claim of a
+token I just minted*, and the agent mints no token here. It also discriminates at the **tenant**
+level, one grain coarser than the failure below.
+
+**So probe the binding before the first content write of a session:**
+
+1. `create_content_item` **one throwaway item**.
+2. Read it back through **two independent instruments** — the verified Authoring GraphQL (host
+   derived via `assert-tenant.mjs`) and Experience Edge — each with a **known-good and a
+   known-bad control**.
+3. `delete_content` it and **confirm absence by re-read** on both.
+
+**A read-back through the tool that wrote it proves nothing.** Neither does an identity check on
+existing content: pre-existing items cross-resolve by GUID across environments of one estate
+(items-as-resources — SCS preserves GUIDs), so path, id and read-back all agree on the wrong
+target. **Only a NEW DB item discriminates.**
+
+**The controls are the load-bearing half, and the rule does not depend on the transport.** A
+sweep where *everything* comes back absent — the known-good control included — is a claim about
+your harness, not an answer about the estate: discard it, repair the instrument, re-run. Note
+the Edge context id's transport is recorded **inconsistently** in this tree and is deliberately
+left open: `sitecoreai-edge-graphql-capture`'s `capture-edge.mjs` builds
+`?sitecoreContextId=<ctx>` and works, while the 2026-09-27 run below recorded an
+`x-sitecore-contextid` **header**, with a query-param attempt returning uniform nulls. The
+param spellings differ, so both can be true of their own endpoint — and a uniform-null result is
+the documented signature of a broken harness either way. Do not settle it by assertion; the
+probe above is correct under both.
+
+**Measured 2026-09-27 (a prior run's FRD).** `create_content_item` returned a
+correct path and id and read back perfectly **through the MCP**, while the verified Authoring
+GraphQL and Experience Edge both showed the item **absent** — the session was bound to a
+different environment of the same estate. Nine content items were written there before anyone
+noticed, and they were left in place, because deleting is teardown on an estate you cannot
+identify.
+
+**Record the answer** in the run manifest at `provisioning.mcp_binding` — the resolved
+environment plus the instrument evidence. Not a gate, a record: "which estate did this run's
+content go to?" had no answer afterwards, which is the whole reason those nine items are still
+sitting somewhere.
+
+> **Status — this is a manual precondition, not a gate.** Nothing asserts it today. The
+> mechanical half (a two-instrument, four-control probe script on the `probe-icon.mjs` shape,
+> exit 2 on a degraded harness rather than a verdict) is designed
+> and is **not built**. Saying otherwise would be an overstated enforcement claim, which is the
+> specific thing that makes the next agent skip a check it believes is already covered.
+
+## Why (the load-bearing failure)
+
+Pages **created via raw Authoring GraphQL `createItem`** (hand-writing the `__Renderings`
+XML) come out **structurally identical to a working page yet DO NOT ROUTE**: the CM layout
+service resolves no route, `getPage` returns a page whose `layout.sitecore.route` is
+`undefined`, and the head app 500s (build goes red). Proven on a prior run, 2026-07-06 - even a
+byte-exact duplicate of the working Home page, created via raw `createItem`, returned
+`route=NONE`, while the sibling site's template-created pages resolved fine. Deleting those
+pages and recreating them with the Marketer MCP `create_page` made them route immediately
+(HTTP 200). The MCP performs the page-creation ceremony (route/layout wiring, projection)
+that hand-rolled `createItem` skips. This is a recurring class of tenant pain; the fix is
+procedural - create pages the MCP way. (Same root class as raw `__Renderings` writes not
+projecting to Edge.)
+
+## The correct pattern
+
+- **Create pages** with `create_page` (templateId + parentId + name). Never `createItem` for a page: a raw-created page does not route.
+- **Place components** with `add_component_on_page`; **attach datasources** with
+  `set_component_datasource`; **set field values** with `update_fields_on_item` /
+  `update_content`; **add child items** with `create_content_item`; **delete** with `delete_content`.
+- **Datasource placement — an EXPLICIT decision per datasource (local vs global), never an
+  assumed default.** Both homes are always available: Sitecore always offers the page's own
+  **`./Data`** folder, and the rendering's `Datasource Location` field adds the **global**
+  per-component container under the site `Data` node as an ADDITIONAL root (rule `80` § 0
+  item 3) — it does not remove the local option or decide which one wins. Decide **before**
+  the write:
+  - **page-specific → LOCAL**, under `<Page>/Data` (folder template `Page Data`
+    `{1C82E550-EBCD-4E5D-8ABD-D50D0809541E}`, created on demand). **This is the default** —
+    when unsure, stay local.
+  - **genuinely reused on ≥2 pages → GLOBAL**, in the component's folder under the site
+    `Data` node (built from the component's folder template), authored **once** and bound to
+    each placement with `set_component_datasource`. Give it a self-descriptive name — the
+    name is all an author sees in a shared picker.
+  - **partial-design chrome (Header / Footer / promo + utility bars) → always local** to the
+    partial design, never global. It is chrome, not reused content.
+
+  The MCP has **no move/rename primitive**, so a wrong placement means re-creating the item:
+  make the call in the page **plan** — a cross-page reuse pass over the planned datasources
+  *before* authoring — not per component mid-write.
+
+  **The two recipes (probe-verified on a live tenant, 2026-07-27):**
+
+  - **LOCAL = `add_component_on_page(…, fields)` and nothing else.** It *always* writes
+    `<Page>/Data/<componentItemName>` (`local:/Data/X` in the layout) and auto-creates the
+    page's `Data` folder — it **ignores** the rendering's global `Datasource Location`. Spaces
+    in `componentItemName` become underscores. One call, no cleanup.
+  - **GLOBAL = create the item in the container, then rebind, then delete the stray.**
+    `create_content_item(name, templateId: <DS template>, parentId: <the component's global
+    container item>)` → `add_component_on_page(…)` → `set_component_datasource(pageId,
+    componentId, datasourceId)` → `delete_content(<the local datasource the add just made>)`.
+    **There is no way to add a component without producing a local datasource** — omitting
+    `fields` still creates an empty one — so the stray delete is a mandatory step, not an
+    optional tidy-up.
+  - **Reuse on page 2..n:** `search_component_ds(component_id, term)` → **filter the hits by
+    path** (it searches by datasource template and returns *local* items too, not just shared
+    ones) → then the same add → rebind → delete-stray sequence.
+
+  **Two traps:** `set_component_datasource`'s `componentId` is the rendering **instance** id
+  (`components[].id` from `get_components_on_page`), **not** the rendering id
+  (`components[].componentId`) — both are in the same payload. And `create_component_ds` does
+  place globally + returns `datasourceLocation`, but takes **no name** — it auto-names
+  `<Component>_<32-hex>`, which is unusable for an item whose whole point is being picked by
+  name from a shared list. Prefer `create_content_item` with an explicit `parentId`.
+
+  **Invariant: a local datasource's parent is `<Page>/Data`, never the page item itself.**
+  This holds for every mechanism, not just the MCP: `add_component_on_page`, `create_content_item`,
+  raw `createItem`, and a `moveItem` that demotes a global datasource to local. `<Page>/Data` is a
+  real item (template `Page Data` `{1C82E550-EBCD-4E5D-8ABD-D50D0809541E}`) — **create it if
+  absent**, then parent to it.
+
+  **The trap: only `add_component_on_page` auto-creates the `Data` folder.**
+  `create_content_item` does **not** — it parents exactly where you point it, so
+  `create_content_item(parentId: <the PAGE>)` lands the datasource **bare under the page** and
+  nothing complains. That path is not hypothetical: it is what you fall into whenever
+  `set_component_datasource` is unavailable (it 422s on renderings created via raw AGQL), because the
+  flow degrades to `create_content_item` + a raw layout-level attach. **One site shipped 35
+  datasources this way** (2026-08-05) — every page rendered, build and tests were green, and a
+  rendering-level schema audit scored 15/15 clean, because `Datasource Location` read the literal
+  `./Data` pointing at a folder that never existed. Only an operator reading the content tree saw it.
+
+  **When MOVING a datasource to local page level** (global → local, or re-homing between pages):
+  the target parent is `<Page>/Data`, created on demand — never the page. A Sitecore `moveItem`
+  preserves the item GUID and layout references are by GUID, so relocating is safe, but it is a
+  live content mutation: canary one page and re-assert the route before rolling.
+
+  **Verify either way — assert the PARENT, not just existence.** Read the created/moved item's
+  path back and confirm its parent segment is `Data`. "The item exists" and "the field is
+  non-empty" both pass on the broken placement. See `sitecoreai-content-composition`
+  § 'Local vs global datasources'.
+- **Media** via the MCP 2-step `uploadMedia`; link with `update_fields_on_item`.
+- **Publish** is separate + explicit (the MCP has NO publish tool) -> Publishing REST
+  (`sitecoreai-publishing`).
+- **Re-auth over fallback.** If the Marketer MCP is disconnected / its token expired
+  (403 - happens every few minutes), **ASK THE OPERATOR TO RE-AUTHORIZE IT** (`/mcp` ->
+  reconnect `sitecore-marketer`) and continue on the MCP. A token-in-the-loop workflow
+  (operator re-auths as needed) is the intended flow. Do NOT silently drop to raw GraphQL
+  to dodge a re-auth - falling back is only for a genuine tool GAP, never an auth hiccup.
+
+## Multi-value fields are pipe-delimited, and the write is read back
+
+A multi-value field value (Multilist, Treelist, Checklist, `PartialDesigns`, …) is a
+single string of GUIDs joined by **`|`**:
+
+```
+{DD26D1E7-C51D-4B36-957C-81AB2D678168}|{A3AD9C45-7669-469E-9108-6B8F4A78DFCE}
+```
+
+**A newline-joined value is accepted, stored, and read back verbatim — and resolves to
+EMPTY in delivery.** Every check an agent naturally reaches for passes:
+
+| check | result on a newline-separated value |
+|---|---|
+| the write call | succeeds, HTTP 200 |
+| read the field back | returns exactly what you wrote |
+| `audit-sitecore-schema.mjs` | clean — it reads the **disk**, and SCS serializes a *correct*
+  pipe-delimited value as one GUID per line, so the on-disk form is **identical either way** |
+| `audit-component-authorability.mjs` | clean — the component renders an SDK field component |
+| the component | renders, with **zero** items |
+
+So the defect is invisible to every gate in the framework and survives to production
+looking like a styling problem. Measured on a prior run: `SelectedWork.Entries` held all
+six entries and delivered none.
+
+**Therefore, on every multi-value write:**
+
+1. **Join with `|`.** Never `\n`, never `, `. Build the string explicitly rather than
+   letting a language's default array-to-string conversion pick a separator.
+2. **Read the field back from the LIVE tenant and assert BOTH** — `!/\n/.test(value)` **and**
+   the GUID count equals what you intended. Counting is not optional: splitting a
+   newline-joined value on `|` yields **1**, which reads as "truncated to one entry" and
+   sends you debugging the wrong thing.
+3. **Assert the rendered ITEM COUNT** in the e2e layer — "SelectedWork renders 6 entries".
+   This is the cheapest real gate and the only one that needs no Sitecore knowledge.
+
+Do **not** try to catch this with a disk-based audit; it structurally cannot see it.
+
+## Legitimate REST / Authoring-GraphQL fallback (the narrow exceptions)
+
+Use raw Authoring GraphQL / REST ONLY where the MCP has no equivalent tool, e.g.:
+
+- **Templates / schema** - datasource templates, rendering definitions, resolvers. The
+  Agent API has no create-template / create-rendering endpoint, so schema authoring over
+  raw AGQL is expected.
+- **Component / rendering VARIANT selection** where the MCP lacks a variant tool.
+- Low-level presentation the MCP cannot express.
+
+Record every fallback (what + why the MCP could not do it) in the run report so it is auditable.
+
+## Agent application
+
+- **08 Developer:** In Phase 6 live authoring, create pages + place components + set content
+  via the Marketer MCP first (08 now carries `mcp__sitecore-marketer__*`). Raw AGQL only for
+  datasource templates / renderings / resolvers (schema) and variant wiring. If you are about
+  to hand-write a `__Renderings` XML for a NEW page, STOP - use `create_page`.
+  - **Schema is built PER COMPONENT during `/implement`, not deferred.** Each component's
+    rendering + datasource template(s) + resolver/`ComponentQuery` are created live via raw
+    AGQL **in the same tranche as its code** (the sanctioned schema path above), then
+    `ser pull`-ed into `cm/` at the tranche's delivery-loop exit — see rule `80` § 0 for the
+    per-component Definition-of-Done + persistence. Deferring schema to "assembly" leaves
+    `add_component_on_page` with no rendering to place (a prior run's PRD-000, 2026-07-12).
+- **14 Content Author:** Same - the Marketer MCP is the way for all page/datasource/child
+  content; re-auth rather than fall back.
+- **06 Lead Developer / 07 QA:** A content-authoring task's plan/tests assume MCP-authored
+  pages. A page that 500s with `route` undefined is the raw-`createItem` smell - flag it.
+
+## Cross-references
+
+- `sitecoreai-content-composition` skill - inventory-first MCP page composition.
+- `/implement` + `/author-content` — live page/content authoring (pages/content via Marketer MCP; schema via AGQL per this rule).

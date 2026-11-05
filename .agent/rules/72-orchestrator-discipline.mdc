@@ -1,0 +1,87 @@
+---
+description: During PIPELINE EXECUTION only, the orchestrator (Team Lead / main pipeline agent) coordinates — it spawns subagents, passes paths not contents, validates by probe-subagent, and holds no un-persisted state; it never reads output artifacts, authors, codes, or runs builds/tests itself. Does NOT apply to plain conversation or direct operator asks.
+alwaysApply: true
+---
+
+# Orchestrator Discipline — Coordinate Only, Keep Context Slim
+
+## Scope — pipeline execution ONLY
+
+**This rule applies only while executing the project build pipeline** — the flow commands (`/create-prd`, `/architect`, `/design`, `/task-breakdown`, `/provision-sitecoreai`, `/implement`, `/code-review`, `/test`, `/author-content`, `/test-content`, `/ship`, `/publish`), which by nature carry big chunks of work. It does **NOT** apply to ordinary conversation, direct operator Q&A, small ad-hoc asks, or trivial one-line fixes — those stay in the main thread (this is the existing distinction: a flow command that invokes a framework agent identity spawns a subagent; a direct operator ask does not). **The discipline scales with the work chunk:** a big pipeline task → delegate to a subagent; a quick question or a two-line edit → just do it. Over-delegating trivial chat is pure overhead and is explicitly out of scope.
+
+## The rule
+
+While executing the pipeline, the orchestrator — the Team Lead (00) or the main pipeline agent driving a multi-stage run — is a **strict coordinator**. Its job is to sequence units, spawn subagents, checkpoint durable state, and relay decision-grade summaries at operator gates. **Every substantial task is a subagent.** The conversation is **disposable**: all durable state lives in **git + the run manifest**, never only in context, so a crashed orchestrator is replaced with zero loss (see rule `71-delivery-loop.mdc` and `.agent/glossary.md` § "Delivery loop").
+
+## The orchestrator ONLY
+
+- **Spawns subagents** via `Agent(subagent_type: "<name>")` — the `subagent_type` is the specialist's frontmatter `name` (`developer`, `qa-specialist`, `software-architect`, `lead-developer`, `ui-designer`, `content-author`, `devops-engineer`, `product-manager`, `doc-writer`, `research-sidecar`, …), because naming it is the only thing that applies the agent's pinned `model:` + `effort:`. A generic type (`claude` / `general-purpose`) or a missing `subagent_type` runs on `CLAUDE_CODE_SUBAGENT_MODEL` (Sonnet) at session effort, and an explicit `model:` replaces the pin; either defeats the model split (opt #3) + the effort dial — **never add a `model:` override on a specialist spawn** (see `.agent/WORKFLOW.md` § "Spawn contract"). Passes **paths, not contents** — the subagent reads the artifact; the orchestrator never streams it into its own context.
+- **Writes small, targeted manifest updates** via a one-liner (a single field or `stage_history` entry), never a full-file rewrite loaded into context.
+- **Relays decision-grade summaries** at operator gates — the ≤5-line envelope a subagent returned, not the underlying document.
+- **Sequences the next unit** — decides which stage / tranche / component runs next and spawns its subagent.
+
+## The orchestrator never
+
+- **Authors, codes, or edits artifacts** (PRD, ADRs, source, tests, content) — those belong to the specialist subagents. `Edit` is reserved for narrow orchestration writes (a `stage_history` entry, a friction-log append, a status-field transition).
+- **Reads output artifacts** — the full PRD, the architecture blueprint, specs, source files, build logs, test transcripts. If a decision needs a fact from inside an artifact, that fact comes back through a subagent's minimal report, not by reading the file.
+- **Runs builds or tests itself** — verification is delegated (see below).
+- **Holds un-persisted progress only in context** — every result is checkpointed to the manifest + git immediately (rule `71-delivery-loop.mdc`, Change 4). If it isn't on disk, it doesn't exist.
+
+## Validation is by PROBE, and the probe is a subagent
+
+"Verify unit X" / "keep an eye that everything still works" is delegated, never done by reading:
+
+- The orchestrator spawns a **verifier subagent** that runs the build / test / grep and returns a **`{pass|fail, ≤2 lines}`** verdict.
+- The orchestrator sees **the verdict**, never the 200-line document or the build log.
+- "Keep an eye that everything works" costs **~5 lines** of relayed verdict, not 500 lines of transcript.
+
+## Reads allowed
+
+The orchestrator may read **only**:
+
+- **The command playbook** — the command `.md` it is executing (its own instructions).
+- **Targeted manifest fields** via a one-liner (a specific `canonical_artifacts.*` path, `next_action`, `implementation.status`, the last `stage_history` entry).
+
+Nothing else. Not the PRD, not the architecture, not source, not build output.
+
+## Guard all Bash output
+
+Verbose commands **always** pipe through `tail` / `grep` / `wc` — never dump lists into context:
+
+- `git status --porcelain | wc -l` then a scoped view, not a raw `git status`.
+- `git add --dry-run` piped through `grep`/`tail` — never the raw 100-line package-cache dump (the observed bloat trigger).
+- Build / test output captured to a file and summarized by a verifier subagent, or piped through `tail -n 20` — never streamed whole.
+
+## Why this rule exists
+
+Over a long multi-phase run, an orchestrator that reads output artifacts into its own context, authors inline, validates by reading whole files, and dumps unbounded Bash output grows until subagent responses become fragile (observed: a PRD-000 dogfood run — the first full prompt→live-tenant e2e). Slim, path-passing coordination keeps the orchestrator's context bounded and the run resilient.
+
+## Agent application
+
+- **00 Team Lead:** the primary subject of this rule — coordinate only; spawn every task as a subagent; pass paths; validate by verifier-subagent; checkpoint per unit; relay ≤5-line envelopes at gates.
+- **Specialist subagents (02, 04, 06, 07, 08, 13, 14, …):** each owns the reads + writes for its stage and returns a decision-grade minimal report (see each agent's `## Outputs Contract` and Change 3). The orchestrator never does the specialist's reading for it.
+
+## Subagent boundaries — stop and ask, never fabricate authorization
+
+A spawned subagent acts **only within its explicitly-assigned task**. It must **STOP and report / escalate** — never proceed on its own — at any of these boundaries:
+
+- **Outward / irreversible actions:** `git push`, opening or merging a PR, any deploy, real-tenant mutations beyond the task's scope, deleting or overwriting files it did not create. These are the operator's call (or an operator gate), never a subagent's. **A subagent never pushes.**
+- **Out-of-scope work:** committing files unrelated to its assigned task, editing artifacts outside its remit, expanding the task. Commit **only your task's files**; leave everything else untouched and surface it.
+- **Missing authorization:** if an action seems needed but was not asked for, **do not invent, assume, or infer an instruction.** Fabricating an operator directive (*"per your request to …"*) to justify an action is forbidden — it is exactly the failure this clause guards against (observed: a refactor subagent fabricated a *"commit and push all"* instruction that was never given, then pushed the branch and swept in unrelated commits).
+
+The default at every boundary is **stop-and-ask**, not proceed-and-hope: reversible, in-scope work proceeds; anything outward, irreversible, or unrequested stops and surfaces to the operator through the orchestrator. Reinforces `20-boundaries.mdc` and the standing on-demand-push / ask-before-teardown rules.
+
+## Relationship to other rules
+
+- `71-delivery-loop.mdc` — the per-component fresh-triad loop is how the orchestrator sequences the build phase; this rule is why it stays slim while doing so (paths not contents; checkpoint per component; verify by subagent).
+- `73-output-verbosity.mdc` — mid-turn chat silence on execution stages; this rule (`72`) is the *final handoff* envelope. Together they cut both inter-agent and intra-turn narration.
+- `20-boundaries.mdc` — the orchestrator's write boundary (narrow orchestration edits only) reinforces "never authors/codes".
+
+## Pitfall index
+
+- Reading the full PRD / architecture "to understand the run" → pass the path to a subagent; read only the command playbook + targeted manifest fields.
+- Authoring an ADR or a manifest block inline "to save a hop" → spawn the owning specialist; the orchestrator only writes small targeted manifest updates.
+- "Let me just check the build output" → spawn a verifier subagent; take the `{pass|fail, ≤2 lines}` verdict.
+- Dumping `git status` / `git add --dry-run` / a build log into context → pipe through `tail`/`grep`/`wc`; never dump lists.
+- Keeping the only record of progress in the conversation → checkpoint to the manifest + git after every unit; the conversation is disposable.
+- Spawning a specialist generically (`subagent_type: "claude"`/`general-purpose`, none at all, or with a `model:` override) → name the specialist's `subagent_type` so its pinned `model`/`effort` apply (observed: a run spawned all specialists generically → every sub-agent ran on Opus, the sonnet split + effort dial silently lost).
